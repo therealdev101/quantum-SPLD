@@ -1,0 +1,102 @@
+{
+	"compiler": {
+		"version": "0.8.17+commit.8df45f5f"
+	},
+	"language": "Solidity",
+	"output": {
+		"abi": [
+			{
+				"inputs": [
+					{
+						"internalType": "address",
+						"name": "validator",
+						"type": "address"
+					}
+				],
+				"name": "isJailed",
+				"outputs": [
+					{
+						"internalType": "bool",
+						"name": "",
+						"type": "bool"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "address",
+						"name": "validator",
+						"type": "address"
+					}
+				],
+				"name": "unjailValidator",
+				"outputs": [],
+				"stateMutability": "nonpayable",
+				"type": "function"
+			}
+		],
+		"devdoc": {
+			"kind": "dev",
+			"methods": {},
+			"version": 1
+		},
+		"userdoc": {
+			"kind": "user",
+			"methods": {},
+			"version": 1
+		}
+	},
+	"settings": {
+		"compilationTarget": {
+			"Proposal.sol": "ISlashing"
+		},
+		"evmVersion": "london",
+		"libraries": {},
+		"metadata": {
+			"bytecodeHash": "ipfs"
+		},
+		"optimizer": {
+			"enabled": true,
+			"runs": 200
+		},
+		"remappings": []
+	},
+	"sources": {
+		"Params.sol": {
+			"keccak256": "0x059768f73637af9c9ec69c5c4a229b1511cecb8b3423b555510c93399fca4bd9",
+			"license": "MIT",
+			"urls": [
+				"bzz-raw://4e0e70c92a89477b233af4dbf2926b7d902899af5b80cd87fd13fa7270283904",
+				"dweb:/ipfs/QmU8pQBNqSv24YWFogAb62vas7meLaifhv5atg2P9hftZ3"
+			]
+		},
+		"Proposal.sol": {
+			"keccak256": "0xd13c4a4964279de18c7b811b744d3d36a44d25909b0e86249108090aa8b8a183",
+			"license": "MIT",
+			"urls": [
+				"bzz-raw://dbdc16d2018d13c9eb1d493f943383d4dc0b54887a52fd59ed1218bd3ecd0aea",
+				"dweb:/ipfs/QmaWv54NnNmYEdWPVfFXBHL2NxyjNM5fKcxRKdrygcWbr5"
+			]
+		},
+		"Punish.sol": {
+			"keccak256": "0x322b641986c027f2ba5ef0f01dd724934b2e0560c47502deb08185c9aeaaff6a",
+			"license": "MIT",
+			"urls": [
+				"bzz-raw://64ba850e766992b14e7bc71f34028a9204e38232ac38f35427cc773dd06c0eae",
+				"dweb:/ipfs/QmNu6Q1XivDVjTaASbR7e2r7aDhoHE2cJDEcRjEq1zfnun"
+			]
+		},
+		"Validators.sol": {
+			"keccak256": "0xf70ed9855b7652b9550ea95feb54163285ce9c8ca6076e753f224561507a2db3",
+			"license": "MIT",
+			"urls": [
+				"bzz-raw://cdf67a62f617d58c828e8a217318193865be36c5bad3ff8724159e7c4d1bc803",
+				"dweb:/ipfs/QmRsJ4CRpvSidU8DATEQ9WvxgM1aJgrxMKxR44Bz1nWfSr"
+			]
+		}
+	},
+	"version": 1
+}

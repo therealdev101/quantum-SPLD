@@ -1,0 +1,32 @@
+# GPU Acceleration Makefile for Splendor Blockchain
+NVCC = nvcc
+CC = gcc-9
+CUDA_PATH ?= /usr/local/cuda
+CUDA_ARCH ?= sm_89
+NVCC_FLAGS = -O3 -arch=$(CUDA_ARCH) -Xcompiler -fPIC -allow-unsupported-compiler -std=c++11
+CUDA_SRC = common/gpu/cuda_kernels.cu
+CUDA_OBJ = common/gpu/cuda_kernels.o
+CUDA_LIB = common/gpu/libcuda_kernels.so
+
+.PHONY: cuda clean check-cuda
+
+# Check CUDA installation
+check-cuda:
+	@echo "Checking CUDA installation..."
+	@which nvcc || (echo "CUDA not found in PATH" && exit 1)
+	@nvcc --version
+	@echo "CUDA Architecture: $(CUDA_ARCH)"
+
+cuda: check-cuda $(CUDA_LIB)
+
+$(CUDA_OBJ): $(CUDA_SRC)
+	@echo "Compiling CUDA kernels with architecture $(CUDA_ARCH)..."
+	$(NVCC) $(NVCC_FLAGS) -c $< -o $@
+
+$(CUDA_LIB): $(CUDA_OBJ)
+	@echo "Linking CUDA shared library..."
+	$(NVCC) -shared $(NVCC_FLAGS) $< -o $@
+	@echo "CUDA library built successfully: $(CUDA_LIB)"
+
+clean:
+	rm -f $(CUDA_OBJ) $(CUDA_LIB) common/gpu/*.so
