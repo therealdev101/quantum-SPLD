@@ -190,7 +190,5 @@ geth-*.log
 nohup.out
 
 # Proof artifacts (evidence - keep in repo for verification)
-# Large proof files (>100MB) excluded due to GitHub limits
-proofs/Full Blocks/
-proofs/Headers /block-21018-header.json
-proofs/Headers /block-21019-header.json
+# Large proof files excluded due to GitHub limits - exclude entire proofs directory
+proofs/
