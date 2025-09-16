@@ -38,26 +38,14 @@ Splendor Blockchain V4 integrates post‑quantum cryptography, native x402 micro
 
 ### 🏆 Verified TPS Performance
 
-**Peak Performance: 2.35M TPS**
-![2.35M TPS Peak](images/2.35mTPS.jpeg)
-
-**Sustained High Performance: 824K TPS**
-![824K TPS Sustained](images/824kTPS.jpeg)
-
-**Production Ready: 400K TPS**
-![400K TPS Production](images/400kTPS.jpeg)
-
-**Balanced Performance: 250K TPS**
-![250K TPS Balanced](images/250kTPS.jpeg)
-
-**Conservative Mode: 200K TPS**
-![200K TPS Conservative](images/200kTPS.jpeg)
-
-**Entry Level: 100K TPS**
-![100K TPS Entry Level](images/100kTPS.jpeg)
-
-**TPS Report Summary**
-![TPS Report](images/tpsreport1.jpeg)
+**Performance Evidence (Click to View Screenshots):**
+- **[Peak Performance: 2.35M TPS](images/2.35mTPS.jpeg)** - Maximum verified throughput
+- **[Sustained High Performance: 824K TPS](images/824kTPS.jpeg)** - Extended high-load testing
+- **[Production Ready: 400K TPS](images/400kTPS.jpeg)** - Production-grade performance
+- **[Balanced Performance: 250K TPS](images/250kTPS.jpeg)** - Optimized resource usage
+- **[Conservative Mode: 200K TPS](images/200kTPS.jpeg)** - Stable long-term operation
+- **[Entry Level: 100K TPS](images/100kTPS.jpeg)** - Baseline performance level
+- **[TPS Report Summary](images/tpsreport1.jpeg)** - Complete performance overview
 
 ### Performance Summary
 - **Peak Performance**: 2.35M TPS 
