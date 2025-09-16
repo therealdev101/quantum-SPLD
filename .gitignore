@@ -190,4 +190,7 @@ geth-*.log
 nohup.out
 
 # Proof artifacts (evidence - keep in repo for verification)
-# proofs/ folder is kept for TPS evidence and reproducibility
+# Large proof files (>100MB) excluded due to GitHub limits
+proofs/Full Blocks/
+proofs/Headers /block-21018-header.json
+proofs/Headers /block-21019-header.json
