@@ -3,8 +3,8 @@
 [![License: SBSAL](https://img.shields.io/badge/License-SBSAL-red.svg)](LICENSE)
 [![Go Version](https://img.shields.io/badge/Go-1.22+-blue.svg)](https://golang.org)
 [![Network Status](https://img.shields.io/badge/Mainnet-Live-brightgreen.svg)](https://mainnet-rpc.splendor.org/)
-[![AI Powered](https://img.shields.io/badge/AI-TinyLlama_1.1B-purple.svg)](docs/GETTING_STARTED.md)
-[![GPU Accelerated](https://img.shields.io/badge/GPU-RTX_4000_SFF_Ada-orange.svg)](docs/GETTING_STARTED.md)
+[![AI Powered](https://img.shields.io/badge/AI-TinyLlama_1.1B-purple.svg)](docs/01-GETTING_STARTED.md)
+[![GPU Accelerated](https://img.shields.io/badge/GPU-RTX_4000_SFF_Ada-orange.svg)](docs/01-GETTING_STARTED.md)
 
 A unified, production‑grade EVM blockchain that combines:
 - Quantum‑resistant signatures (ML‑DSA/Dilithium via liboqs)
