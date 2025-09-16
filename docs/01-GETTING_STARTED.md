@@ -26,7 +26,7 @@ This script automatically:
 - Builds liboqs (quantum-resistant cryptography)
 - Compiles GPU kernels and links with geth
 - Configures environment variables
-- Sets up AI optimization (TinyLlama 1.1B)
+- Sets up AI optimization (MobileLLM-R1)
 
 ### 3. Start Node
 ```bash

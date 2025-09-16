@@ -1312,7 +1312,7 @@ verify_installation(){
   fi
   
   # Check vLLM systemd service
-  if systemctl list-unit-files | grep -q "vllm-tinyllama.service"; then
+  if systemctl list-unit-files | grep -q "vllm-mobilellm.service"; then
     log_success "✅ vLLM systemd service configured"
   else
     log_error "❌ vLLM systemd service not found"
@@ -1357,7 +1357,7 @@ verify_installation(){
     echo -e "${GREEN}║  All components installed successfully!                     ║${NC}"
     echo -e "${GREEN}║  • Go + Geth blockchain node                                ║${NC}"
     echo -e "${GREEN}║  • GPU acceleration (CUDA + OpenCL)                        ║${NC}"
-    echo -e "${GREEN}║  • AI system (vLLM + TinyLlama 1.1B)                       ║${NC}"
+    echo -e "${GREEN}║  • AI system (vLLM + MobileLLM-R1)                        ║${NC}"
     echo -e "${GREEN}║  • Node.js ecosystem (yarn + pm2)                          ║${NC}"
     echo -e "${GREEN}║                                                              ║${NC}"
     echo -e "${GREEN}║  Ready to start with: ./node-start.sh                      ║${NC}"
@@ -1445,7 +1445,7 @@ finalize(){
   yarn
   cd $nodePath
 
-  # Install AI-powered load balancing (vLLM + TinyLlama 1.1B)
+  # Install AI-powered load balancing (vLLM + MobileLLM-R1)
   install_ai_llm
 
   # Install x402 native payments protocol

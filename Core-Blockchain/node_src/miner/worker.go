@@ -267,7 +267,7 @@ func newWorker(config *Config, chainConfig *params.ChainConfig, engine consensus
 	
 	// Initialize parallel state processor for advanced parallel processing
 	parallelConfig := core.DefaultParallelProcessorConfig()
-	// Optimize for full CPU utilization while reserving resources for TinyLlama 1.1B
+	// Optimize for full CPU utilization while reserving resources for MobileLLM-R1
 	cpuCores := runtime.NumCPU()
 	parallelConfig.TxBatchSize = 100000  // 1000x larger - match GPU's capability
 	parallelConfig.MaxTxConcurrency = cpuCores * 12  // Use 75% of CPU cores (leave 25% for AI)
@@ -280,7 +280,7 @@ func newWorker(config *Config, chainConfig *params.ChainConfig, engine consensus
 		"cpuCores", cpuCores,
 		"maxConcurrency", parallelConfig.MaxTxConcurrency,
 		"maxGoroutines", parallelConfig.MaxGoroutines,
-		"reservedForAI", "25% CPU + 6GB GPU for TinyLlama")
+		"reservedForAI", "25% CPU + 6GB GPU for MobileLLM-R1")
 	
 	var err error
 	worker.parallelProcessor, err = core.NewParallelStateProcessor(chainConfig, eth.BlockChain(), engine, parallelConfig)

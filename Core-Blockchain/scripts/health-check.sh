@@ -117,11 +117,11 @@ check_item "CUDA toolkit installed" "command -v nvcc"
 check_item "GPU Makefile exists" "test -f ./node_src/Makefile.gpu"
 check_warning "GPU libraries built" "test -f ./node_src/common/gpu/libcuda_kernels.so || test -f ./node_src/common/gpu/libopencl_kernels.so"
 
-echo -e "\n${PURPLE}=== 5. AI SYSTEM (vLLM + TinyLlama 1.1B) ===${NC}"
+echo -e "\n${PURPLE}=== 5. AI SYSTEM (vLLM + MobileLLM-R1) ===${NC}"
 
 check_item "vLLM setup script exists" "test -f ./scripts/setup-ai-llm.sh"
 check_item "AI load balancer code exists" "test -f ./node_src/common/ai/ai_load_balancer.go"
-check_warning "vLLM service running" "systemctl is-active --quiet vllm-tinyllama"
+check_warning "vLLM service running" "systemctl is-active --quiet vllm-mobilellm"
 check_warning "vLLM API accessible" "curl -s http://localhost:8000/v1/models"
 check_item "AI config in .env" "grep 'ENABLE_AI_LOAD_BALANCING=true' ./.env"
 
@@ -178,7 +178,7 @@ echo -e "${CYAN}Start AI blockchain: ${ORANGE}./scripts/start-ai-blockchain.sh -
 echo -e "${CYAN}Monitor performance: ${ORANGE}./scripts/performance-dashboard.sh${NC}"
 echo -e "${CYAN}View AI decisions: ${ORANGE}./scripts/ai-monitor.sh${NC}"
 echo -e "${CYAN}Check GPU status: ${ORANGE}nvidia-smi${NC}"
-echo -e "${CYAN}Check vLLM status: ${ORANGE}sudo systemctl status vllm-tinyllama${NC}"
+echo -e "${CYAN}Check vLLM status: ${ORANGE}sudo systemctl status vllm-mobilellm${NC}"
 
 echo -e "\n${PURPLE}=== DETAILED SYSTEM INFO ===${NC}"
 echo -e "${CYAN}CPU: $(nproc) cores${NC}"

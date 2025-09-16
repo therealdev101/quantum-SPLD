@@ -72,7 +72,7 @@ Welcome to the comprehensive documentation for Splendor Blockchain V4 - a unifie
 - **Native x402 Payments**: HTTP-native micropayments protocol
 - **GPU Acceleration**: CUDA-based hybrid processing (2.35M+ TPS verified)
 - **Full EVM Compatibility**: Works with standard Ethereum tooling
-- **AI-Powered Optimization**: TinyLlama 1.1B for load balancing
+- **AI-Powered Optimization**: MobileLLM-R1 for load balancing
 
 ## 📊 Performance Evidence
 

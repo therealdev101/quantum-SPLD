@@ -52,11 +52,11 @@ type AIConfig struct {
 	ConfidenceThreshold float64    `json:"confidenceThreshold"`
 }
 
-// DefaultAIConfig returns default AI configuration for TinyLlama with vLLM
+// DefaultAIConfig returns default AI configuration for MobileLLM-R1 with vLLM
 func DefaultAIConfig() *AIConfig {
 	return &AIConfig{
 		LLMEndpoint:         "http://localhost:8000/v1/chat/completions", // vLLM OpenAI-compatible API
-		LLMModel:           "TinyLlama/TinyLlama-1.1B-Chat-v1.0", // TinyLlama 1.1B parameter model
+		LLMModel:           "facebook/MobileLLM-R1", // MobileLLM-R1 parameter model
 		LLMTimeout:         1 * time.Second, // 2x faster for high TPS optimization
 		UpdateInterval:     250 * time.Millisecond, // 2x more frequent updates for massive TPS
 		HistorySize:        200, // 2x larger history for better pattern recognition
