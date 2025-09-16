@@ -36,18 +36,35 @@ Splendor Blockchain V4 integrates post‑quantum cryptography, native x402 micro
 
 ## Performance & Evidence
 
-- Verified peak: 2.35M TPS  
-- Sustained: 824K+ TPS  
-- Block time: ~1 second
+### 🏆 Verified TPS Performance
 
-Artifacts in repository:
-- Screenshots (images/):
-  - 2.35mTPS.jpeg (peak)
-  - 824kTPS.jpeg, 400kTPS.jpeg, 250kTPS.jpeg, 200kTPS.jpeg, 100kTPS.jpeg, tpsreport1.jpeg
-- On‑chain proofs (proofs/):
-  - Headers/ (multiple heights, including 20980–21019)
-  - Full Blocks/block-21018.json
-  - dump-specific-blocks.sh (script to re‑extract/verify)
+**Peak Performance: 2.35M TPS**
+![2.35M TPS Peak](images/2.35mTPS.jpeg)
+
+**Sustained High Performance: 824K TPS**
+![824K TPS Sustained](images/824kTPS.jpeg)
+
+**Production Ready: 400K TPS**
+![400K TPS Production](images/400kTPS.jpeg)
+
+**Balanced Performance: 250K TPS**
+![250K TPS Balanced](images/250kTPS.jpeg)
+
+**Mid-Range Hardware: 200K TPS**
+![200K TPS Mid-Range](images/200kTPS.jpeg)
+
+**CPU-Only Baseline: 100K TPS**
+![100K TPS CPU Only](images/100kTPS.jpeg)
+
+**TPS Report Summary**
+![TPS Report](images/tpsreport1.jpeg)
+
+### Performance Summary
+- **Verified peak**: 2.35M TPS (GPU accelerated)
+- **Sustained high**: 824K+ TPS (production ready)
+- **CPU-only baseline**: 100K+ TPS
+- **Block time**: ~1 second
+- **Hardware**: NVIDIA RTX 4090 + high-end CPU for peak performance
 
 ## Unified Architecture (Quantum + x402 + GPU)
 
