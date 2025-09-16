@@ -809,8 +809,8 @@ install_nvm() {
 }
 
 install_ai_llm(){
-  # Install AI-powered load balancing (vLLM + TinyLlama 1.1B) TASK AI
-  log_wait "Installing AI-powered load balancing system (vLLM + TinyLlama 1.1B)" && progress_bar
+  # Install AI-powered load balancing (vLLM + MobileLLM-R1) TASK AI
+  log_wait "Installing AI-powered load balancing system (vLLM + MobileLLM-R1)" && progress_bar
   
   # Install Python dependencies for vLLM (10%)
   log_wait "Installing Python dependencies for AI system [10%]" && progress_bar
@@ -878,9 +878,9 @@ install_ai_llm(){
   
   # Create vLLM systemd service with proper GPU memory allocation
   log_wait "Setting up vLLM as system service with optimized GPU memory allocation"
-  cat > /etc/systemd/system/vllm-tinyllama.service << EOF
+  cat > /etc/systemd/system/vllm-mobilellm.service << EOF
 [Unit]
-Description=vLLM TinyLlama Service for Blockchain AI
+Description=vLLM MobileLLM-R1 Service for Blockchain AI
 After=network.target
 
 [Service]
@@ -890,7 +890,7 @@ WorkingDirectory=/opt/vllm-env
 Environment=CUDA_VISIBLE_DEVICES=0
 Environment=VLLM_USE_MODELSCOPE=False
 Environment=CUDA_MEMORY_FRACTION=0.15
-ExecStart=/opt/vllm-env/bin/python -m vllm.entrypoints.openai.api_server --model TinyLlama/TinyLlama-1.1B-Chat-v1.0 --host 0.0.0.0 --port 8000 --gpu-memory-utilization 0.15 --max-model-len 2048 --dtype float16 --tensor-parallel-size 1 --enforce-eager --disable-log-stats
+ExecStart=/opt/vllm-env/bin/python -m vllm.entrypoints.openai.api_server --model facebook/MobileLLM-R1 --host 0.0.0.0 --port 8000 --gpu-memory-utilization 0.15 --max-model-len 2048 --dtype float16 --tensor-parallel-size 1 --enforce-eager --disable-log-stats
 Restart=always
 RestartSec=10
 StandardOutput=journal
@@ -902,16 +902,16 @@ EOF
 
   # Enable vLLM service
   systemctl daemon-reload
-  systemctl enable vllm-tinyllama
+  systemctl enable vllm-mobilellm
   
   # Add AI configuration to .env
   log_wait "Configuring AI load balancing settings"
   cat >> ./.env << EOF
 
-# AI-Powered Load Balancing Configuration (vLLM + TinyLlama 1.1B)
+# AI-Powered Load Balancing Configuration (vLLM + MobileLLM-R1)
 ENABLE_AI_LOAD_BALANCING=true
 LLM_ENDPOINT=http://localhost:8000/v1/chat/completions
-LLM_MODEL=TinyLlama/TinyLlama-1.1B-Chat-v1.0
+LLM_MODEL=facebook/MobileLLM-R1
 LLM_TIMEOUT_SECONDS=2
 AI_UPDATE_INTERVAL_MS=500
 AI_HISTORY_SIZE=100
