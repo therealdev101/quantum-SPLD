@@ -50,21 +50,24 @@ Splendor Blockchain V4 integrates post‑quantum cryptography, native x402 micro
 **Balanced Performance: 250K TPS**
 ![250K TPS Balanced](images/250kTPS.jpeg)
 
-**Mid-Range Hardware: 200K TPS**
-![200K TPS Mid-Range](images/200kTPS.jpeg)
+**Conservative Mode: 200K TPS**
+![200K TPS Conservative](images/200kTPS.jpeg)
 
-**CPU-Only Baseline: 100K TPS**
-![100K TPS CPU Only](images/100kTPS.jpeg)
+**Entry Level: 100K TPS**
+![100K TPS Entry Level](images/100kTPS.jpeg)
 
 **TPS Report Summary**
 ![TPS Report](images/tpsreport1.jpeg)
 
 ### Performance Summary
-- **Verified peak**: 2.35M TPS (GPU accelerated)
-- **Sustained high**: 824K+ TPS (production ready)
-- **CPU-only baseline**: 100K+ TPS
+- **Peak Performance**: 2.35M TPS 
+- **High Sustained**: 824K TPS
+- **Production Ready**: 400K TPS
+- **Balanced Mode**: 250K TPS
+- **Conservative**: 200K TPS
+- **Entry Level**: 100K TPS
 - **Block time**: ~1 second
-- **Hardware**: NVIDIA RTX 4090 + high-end CPU for peak performance
+- **All tests**: GPU-accelerated on same hardware setup
 
 ## Unified Architecture (Quantum + x402 + GPU)
 
