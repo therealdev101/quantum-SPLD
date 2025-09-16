@@ -54,8 +54,8 @@ task1(){
 }
 
 task2(){
-  # installing build-essential TASK 2
-  log_wait "Getting dependies" && progress_bar
+  # installing build-essential and quantum cryptography dependencies TASK 2
+  log_wait "Getting dependencies including quantum cryptography support" && progress_bar
   
   # Fix bzip2/libbz2-1.0 version conflict on Ubuntu 24.04
   if grep -q "24.04" /etc/os-release; then
@@ -64,8 +64,13 @@ task2(){
     apt install bzip2 -y 2>/dev/null || true
   fi
   
-  apt -y install build-essential tree
-  log_success "Done"
+  # Install essential build tools and quantum cryptography dependencies
+  apt -y install build-essential tree cmake ninja-build libssl-dev pkg-config curl wget git
+  
+  # Install additional dependencies for liboqs (post-quantum cryptography)
+  apt -y install libssl-dev libcrypto++-dev zlib1g-dev
+  
+  log_success "Build dependencies and quantum cryptography support installed"
 }
 
 task3(){
@@ -148,8 +153,8 @@ task5(){
 }
 
 task6(){
-  # do make all TASK 6 with automatic GPU compilation
-  log_wait "Building backend with GPU acceleration" && progress_bar
+  # do make all TASK 6 with automatic GPU compilation and quantum cryptography
+  log_wait "Building backend with GPU acceleration and quantum cryptography support" && progress_bar
   cd node_src
   
   # Set CUDA environment for build
@@ -157,12 +162,39 @@ task6(){
   export PATH=$CUDA_PATH/bin:$PATH
   export LD_LIBRARY_PATH=$CUDA_PATH/lib64:$LD_LIBRARY_PATH
 
-  # Build Post-Quantum liboqs (used by ML-DSA) and prepare CGO flags
-  log_wait "Building post-quantum liboqs (ML-DSA) and preparing CGO flags"
-  make -f Makefile.pq liboqs || true
-  # Use no-space symlink created by Makefile.pq
-  export PQ_CGO_CFLAGS="-I/tmp/splendor_liboqs/include"
-  export PQ_CGO_LDFLAGS="-L/tmp/splendor_liboqs/lib -loqs -lcrypto -lssl -ldl -lpthread"
+  # Build Post-Quantum liboqs (used by ML-DSA) with proper dependency installation
+  log_wait "Installing liboqs dependencies and building post-quantum cryptography library"
+  
+  # First install dependencies using the Makefile.pq install-deps target
+  if make -f Makefile.pq install-deps; then
+    log_success "liboqs dependencies installed successfully"
+  else
+    log_wait "Dependencies may already be installed, continuing with build"
+  fi
+  
+  # Build liboqs with proper error handling
+  log_wait "Building liboqs (Open Quantum Safe) library for ML-DSA support"
+  if make -f Makefile.pq liboqs; then
+    log_success "liboqs built successfully"
+  else
+    log_error "liboqs build failed - quantum cryptography features will be disabled"
+    # Continue without quantum features
+    export PQ_CGO_CFLAGS=""
+    export PQ_CGO_LDFLAGS=""
+  fi
+  
+  # Set CGO flags for post-quantum support if liboqs was built successfully
+  if [ -f "/tmp/splendor_liboqs/lib/liboqs.a" ] && [ -f "/tmp/splendor_liboqs/include/oqs/oqs.h" ]; then
+    log_success "Setting up CGO flags for post-quantum cryptography integration"
+    export PQ_CGO_CFLAGS="-I/tmp/splendor_liboqs/include"
+    export PQ_CGO_LDFLAGS="-L/tmp/splendor_liboqs/lib -loqs -lcrypto -lssl -ldl -lpthread"
+    export CGO_ENABLED=1
+    log_success "Post-quantum cryptography (ML-DSA) integration ready"
+  else
+    log_wait "liboqs not available - building without quantum cryptography features"
+    export PQ_CGO_CFLAGS=""
+    export PQ_CGO_LDFLAGS=""
+  fi
   
   # First, compile CUDA kernels if CUDA is available
   if command -v nvcc >/dev/null 2>&1; then
