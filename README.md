@@ -3,7 +3,7 @@
 [![License: SBSAL](https://img.shields.io/badge/License-SBSAL-red.svg)](LICENSE)
 [![Go Version](https://img.shields.io/badge/Go-1.22+-blue.svg)](https://golang.org)
 [![Network Status](https://img.shields.io/badge/Mainnet-Live-brightgreen.svg)](https://mainnet-rpc.splendor.org/)
-[![AI Powered](https://img.shields.io/badge/AI-TinyLlama_1.1B-purple.svg)](docs/01-GETTING_STARTED.md)
+[![AI Powered](https://img.shields.io/badge/AI-MobileLLM_R1-purple.svg)](docs/01-GETTING_STARTED.md)
 [![GPU Accelerated](https://img.shields.io/badge/GPU-RTX_4000_SFF_Ada-orange.svg)](docs/01-GETTING_STARTED.md)
 
 A unified, production‑grade EVM blockchain that combines:
@@ -29,7 +29,7 @@ Splendor Blockchain V4 integrates post‑quantum cryptography, native x402 micro
 - GPU Acceleration (CUDA/OpenCL):
   - Hybrid CPU/GPU pipeline with thresholds, worker parallelism, and pipelining
   - GPU RPC namespace for runtime introspection and health reporting
-- AI‑Powered Optimization (TinyLlama 1.1B via vLLM):
+- AI‑Powered Optimization (MobileLLM-R1 via vLLM):
   - Optional local AI service for load balancing and throughput tuning
 - Full EVM Compatibility:
   - Operates with standard Ethereum tooling and client libraries
@@ -112,7 +112,7 @@ What it does:
 - Installs/updates NVIDIA drivers, CUDA (runfile if needed), OpenCL
 - Builds liboqs (ML‑DSA) and compiles geth with CUDA + PQ linkage
 - Writes .env with GPU defaults (ENABLE_GPU=true)
-- Optionally installs vLLM/TinyLlama for AI load balancing
+- Optionally installs vLLM/MobileLLM-R1 for AI load balancing
 - Adds x402 configuration and test utilities
 
 2) Start node(s)
