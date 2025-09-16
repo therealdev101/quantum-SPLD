@@ -67,16 +67,16 @@ func DefaultHybridConfig() *HybridConfig {
 		CPUConfig:             gopool.DefaultProcessorConfig(),
 		GPUConfig:             gpu.DefaultGPUConfig(),
 		EnableGPU:             true,
-		GPUThreshold:          500,   // 10x lower - Use GPU for batches >= 500 (massive GPU utilization)
-		CPUGPURatio:           0.90,  // 90% GPU, 10% CPU for maximum GPU utilization
+		GPUThreshold:          2000,  // Higher threshold - Use GPU for batches >= 2000 (balanced utilization)
+		CPUGPURatio:           0.20,  // 20% GPU, 80% CPU for balanced utilization
 		AdaptiveLoadBalancing: true,
 		PerformanceMonitoring: true,
-		MaxCPUUtilization:     0.95,  // 95% max CPU usage (higher utilization)
-		MaxGPUUtilization:     0.98,  // 98% max GPU usage (push RTX 4000 SFF Ada to limits)
-		LatencyThreshold:      25 * time.Millisecond,  // 2x faster latency target
-		ThroughputTarget:      10000000, // 10M TPS target (2x increase)
+		MaxCPUUtilization:     0.85,  // 85% max CPU usage (sustainable)
+		MaxGPUUtilization:     0.90,  // 90% max GPU usage (sustainable)
+		LatencyThreshold:      50 * time.Millisecond,  // More realistic latency target
+		ThroughputTarget:      3000000, // 3M TPS target (realistic for hardware)
 		MaxMemoryUsage:        64 * 1024 * 1024 * 1024, // 64GB total system memory
-		GPUMemoryReservation:  18 * 1024 * 1024 * 1024, // 18GB GPU reserved (RTX 4000 SFF Ada 20GB)
+		GPUMemoryReservation:  12 * 1024 * 1024 * 1024, // 12GB GPU reserved (safer limit)
 	}
 }
 
