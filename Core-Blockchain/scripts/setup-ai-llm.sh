@@ -8,7 +8,7 @@ PURPLE='\033[0;35m'
 NC='\033[0m' # No Color
 
 echo -e "${PURPLE}🤖 Setting up AI-Powered Load Balancing for Splendor Blockchain${NC}"
-echo -e "${CYAN}This will install vLLM and Phi-3 Mini (3.8B) for ultra-fast AI GPU switching${NC}\n"
+echo -e "${CYAN}This will install vLLM and TinyLlama 1.1B for ultra-fast AI GPU switching${NC}\n"
 
 # Function to check if command exists
 command_exists() {
@@ -78,9 +78,9 @@ setup_vllm_service() {
     echo -e "${CYAN}Setting up vLLM as a system service...${NC}"
     
     # Create systemd service file for vLLM
-    sudo tee /etc/systemd/system/vllm-phi3.service > /dev/null <<EOF
+    sudo tee /etc/systemd/system/vllm-tinyllama.service > /dev/null <<EOF
 [Unit]
-Description=vLLM Phi-3 Mini Service for Blockchain AI
+Description=vLLM TinyLlama Service for Blockchain AI
 After=network.target
 
 [Service]
@@ -89,7 +89,7 @@ User=root
 WorkingDirectory=/opt/vllm-env
 Environment=CUDA_VISIBLE_DEVICES=0
 Environment=VLLM_USE_MODELSCOPE=False
-ExecStart=/opt/vllm-env/bin/python -m vllm.entrypoints.openai.api_server --model microsoft/Phi-3-mini-4k-instruct --host 0.0.0.0 --port 8000 --gpu-memory-utilization 0.3 --max-model-len 4096 --dtype float16
+ExecStart=/opt/vllm-env/bin/python -m vllm.entrypoints.openai.api_server --model TinyLlama/TinyLlama-1.1B-Chat-v1.0 --host 0.0.0.0 --port 8000 --gpu-memory-utilization 0.15 --max-model-len 2048 --dtype float16 --tensor-parallel-size 1 --enforce-eager --disable-log-stats
 Restart=always
 RestartSec=10
 StandardOutput=journal
@@ -101,32 +101,32 @@ EOF
 
     # Enable and start service
     sudo systemctl daemon-reload
-    sudo systemctl enable vllm-phi3
-    sudo systemctl start vllm-phi3
+    sudo systemctl enable vllm-tinyllama
+    sudo systemctl start vllm-tinyllama
     
     # Wait for service to start
     echo -e "${CYAN}Waiting for vLLM service to start (this may take 60-120 seconds for model download)...${NC}"
     
     # Check service status with timeout
     for i in {1..60}; do
-        if sudo systemctl is-active --quiet vllm-phi3; then
-            echo -e "${GREEN}vLLM Phi-3 service started successfully${NC}"
+        if sudo systemctl is-active --quiet vllm-tinyllama; then
+            echo -e "${GREEN}vLLM TinyLlama service started successfully${NC}"
             break
         fi
         echo -e "${ORANGE}Waiting for vLLM service... ($i/60)${NC}"
         sleep 2
     done
     
-    if ! sudo systemctl is-active --quiet vllm-phi3; then
+    if ! sudo systemctl is-active --quiet vllm-tinyllama; then
         echo -e "${RED}vLLM service failed to start${NC}"
-        sudo systemctl status vllm-phi3
+        sudo systemctl status vllm-tinyllama
         exit 1
     fi
 }
 
 # Function to test vLLM API
 test_vllm_api() {
-    echo -e "${CYAN}Testing vLLM API and Phi-3 Mini model...${NC}"
+    echo -e "${CYAN}Testing vLLM API and TinyLlama 1.1B model...${NC}"
     
     # Wait for API to be ready
     for i in {1..30}; do
@@ -139,21 +139,21 @@ test_vllm_api() {
     done
     
     # Test the model
-    echo -e "${CYAN}Testing Phi-3 Mini model via vLLM...${NC}"
-    test_response=$(curl -s -X POST http://localhost:8000/v1/completions \
+    echo -e "${CYAN}Testing TinyLlama 1.1B model via vLLM...${NC}"
+    test_response=$(curl -s -X POST http://localhost:8000/v1/chat/completions \
         -H "Content-Type: application/json" \
         -d '{
-            "model": "microsoft/Phi-3-mini-4k-instruct",
-            "prompt": "Respond with AI Ready if you can help with blockchain load balancing.",
+            "model": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+            "messages": [{"role": "user", "content": "Respond with AI Ready if you can help with blockchain load balancing."}],
             "max_tokens": 50,
             "temperature": 0.1
-        }' | jq -r '.choices[0].text' 2>/dev/null)
+        }' | jq -r '.choices[0].message.content' 2>/dev/null)
     
     if [[ "$test_response" == *"AI Ready"* ]] || [[ "$test_response" == *"ready"* ]] || [[ "$test_response" == *"Ready"* ]]; then
-        echo -e "${GREEN}✅ Phi-3 Mini model is working correctly with vLLM${NC}"
+        echo -e "${GREEN}✅ TinyLlama 1.1B model is working correctly with vLLM${NC}"
         echo -e "${CYAN}Response: ${test_response}${NC}"
     else
-        echo -e "${ORANGE}⚠️  Phi-3 Mini model test completed${NC}"
+        echo -e "${ORANGE}⚠️  TinyLlama 1.1B model test completed${NC}"
         echo -e "${CYAN}Response: ${test_response}${NC}"
     fi
 }
@@ -175,7 +175,7 @@ NC='\033[0m'
 # AI Monitoring for Splendor Blockchain with vLLM
 while true; do
     clear
-    echo -e "${PURPLE}🤖 AI-Powered Blockchain Monitor (vLLM + Phi-3 Mini) - $(date)${NC}"
+    echo -e "${PURPLE}🤖 AI-Powered Blockchain Monitor (vLLM + TinyLlama 1.1B) - $(date)${NC}"
     echo -e "${CYAN}================================================================${NC}"
     
     # GPU Status
@@ -222,7 +222,7 @@ while true; do
     echo -e "\n${GREEN}🤖 vLLM AI Load Balancer Status:${NC}"
     if curl -s http://localhost:8000/v1/models >/dev/null 2>&1; then
         echo -e "${CYAN}  vLLM Status: ${GREEN}Online (Port 8000)${NC}"
-        echo -e "${CYAN}  LLM Model: ${GREEN}Phi-3 Mini (3.8B - Ready)${NC}"
+        echo -e "${CYAN}  LLM Model: ${GREEN}TinyLlama 1.1B (Ready)${NC}"
         echo -e "${CYAN}  AI Decisions: ${GREEN}Active (500ms intervals)${NC}"
         echo -e "${CYAN}  Target TPS: ${ORANGE}5,000,000+${NC}"
         echo -e "${CYAN}  GPU Batch Size: ${ORANGE}50,000 transactions${NC}"
@@ -256,7 +256,7 @@ EOF
 
 # Function to update environment with vLLM AI settings
 update_env_with_ai() {
-    echo -e "${CYAN}Adding vLLM Phi-3 Mini AI configuration to .env file...${NC}"
+    echo -e "${CYAN}Adding vLLM TinyLlama 1.1B AI configuration to .env file...${NC}"
     
     cd /root/splendor-blockchain-v4/Core-Blockchain/
     
@@ -264,10 +264,10 @@ update_env_with_ai() {
     if ! grep -q "AI_LOAD_BALANCING" .env; then
         cat >> .env << EOF
 
-# AI-Powered Load Balancing Configuration (vLLM + Phi-3 Mini 3.8B)
+# AI-Powered Load Balancing Configuration (vLLM + TinyLlama 1.1B)
 ENABLE_AI_LOAD_BALANCING=true
-LLM_ENDPOINT=http://localhost:8000/v1/completions
-LLM_MODEL=microsoft/Phi-3-mini-4k-instruct
+LLM_ENDPOINT=http://localhost:8000/v1/chat/completions
+LLM_MODEL=TinyLlama/TinyLlama-1.1B-Chat-v1.0
 LLM_TIMEOUT_SECONDS=2
 AI_UPDATE_INTERVAL_MS=500
 AI_HISTORY_SIZE=100
@@ -276,10 +276,10 @@ AI_CONFIDENCE_THRESHOLD=0.75
 AI_ENABLE_LEARNING=true
 AI_ENABLE_PREDICTIONS=true
 AI_FAST_MODE=true
-VLLM_GPU_MEMORY_UTILIZATION=0.3
+VLLM_GPU_MEMORY_UTILIZATION=0.4
 VLLM_MAX_MODEL_LEN=4096
 EOF
-        echo -e "${GREEN}vLLM Phi-3 Mini AI configuration added to .env${NC}"
+        echo -e "${GREEN}vLLM TinyLlama 1.1B AI configuration added to .env${NC}"
     else
         echo -e "${ORANGE}AI configuration already exists in .env${NC}"
     fi
@@ -299,20 +299,20 @@ CYAN='\033[0;36m'
 PURPLE='\033[0;35m'
 NC='\033[0m'
 
-echo -e "${PURPLE}🚀 Starting AI-Powered Splendor Blockchain (vLLM + Phi-3 Mini)${NC}"
+echo -e "${PURPLE}🚀 Starting AI-Powered Splendor Blockchain (vLLM + TinyLlama 1.1B)${NC}"
 
 # Start vLLM service if not running
-if ! systemctl is-active --quiet vllm-phi3; then
-    echo -e "${CYAN}Starting vLLM Phi-3 service...${NC}"
-    sudo systemctl start vllm-phi3
+if ! systemctl is-active --quiet vllm-tinyllama; then
+    echo -e "${CYAN}Starting vLLM TinyLlama service...${NC}"
+    sudo systemctl start vllm-tinyllama
     sleep 10
 fi
 
 # Verify vLLM is running
 if curl -s http://localhost:8000/v1/models >/dev/null 2>&1; then
-    echo -e "${GREEN}✅ vLLM Phi-3 Mini service is running${NC}"
+    echo -e "${GREEN}✅ vLLM TinyLlama service is running${NC}"
     echo -e "${CYAN}   API Endpoint: http://localhost:8000${NC}"
-    echo -e "${CYAN}   Model: microsoft/Phi-3-mini-4k-instruct${NC}"
+    echo -e "${CYAN}   Model: TinyLlama/TinyLlama-1.1B-Chat-v1.0${NC}"
 else
     echo -e "${RED}❌ vLLM service failed to start${NC}"
     echo -e "${ORANGE}AI load balancing will be disabled${NC}"
@@ -438,7 +438,7 @@ while true; do
     
     if curl -s http://localhost:8000/v1/models >/dev/null 2>&1; then
         echo -e "${CYAN}│ vLLM Status: ${GREEN}Online (Port 8000)${NC}"
-        echo -e "${CYAN}│ LLM Model: ${GREEN}Phi-3 Mini (3.8B - Ready)${NC}"
+        echo -e "${CYAN}│ LLM Model: ${GREEN}TinyLlama 1.1B (Ready)${NC}"
         echo -e "${CYAN}│ AI Decisions: ${GREEN}Active (500ms intervals)${NC}"
         echo -e "${CYAN}│ Target TPS: ${ORANGE}5,000,000+${NC}"
         echo -e "${CYAN}│ GPU Batch Size: ${ORANGE}50,000 transactions${NC}"
@@ -477,7 +477,7 @@ EOF
 
 # Function to test vLLM AI integration
 test_ai_integration() {
-    echo -e "${CYAN}Testing vLLM Phi-3 Mini AI integration...${NC}"
+    echo -e "${CYAN}Testing vLLM TinyLlama 1.1B AI integration...${NC}"
     
     # Test vLLM API
     if curl -s http://localhost:8000/v1/models >/dev/null 2>&1; then
@@ -487,23 +487,23 @@ test_ai_integration() {
         return 1
     fi
     
-    # Test Phi-3 Mini model with blockchain query
+    # Test TinyLlama 1.1B model with blockchain query
     test_prompt="You are a blockchain load balancer. Current TPS: 100000, CPU: 80%, GPU: 60%. Recommend GPU ratio (0-1) in JSON format."
     
-    response=$(curl -s -X POST http://localhost:8000/v1/completions \
+    response=$(curl -s -X POST http://localhost:8000/v1/chat/completions \
         -H "Content-Type: application/json" \
         -d "{
-            \"model\": \"microsoft/Phi-3-mini-4k-instruct\",
-            \"prompt\": \"$test_prompt\",
+            \"model\": \"TinyLlama/TinyLlama-1.1B-Chat-v1.0\",
+            \"messages\": [{\"role\": \"user\", \"content\": \"$test_prompt\"}],
             \"max_tokens\": 100,
             \"temperature\": 0.1
-        }" | jq -r '.choices[0].text' 2>/dev/null)
+        }" | jq -r '.choices[0].message.content' 2>/dev/null)
     
     if [[ "$response" == *"ratio"* ]] || [[ "$response" == *"0."* ]]; then
-        echo -e "${GREEN}✅ vLLM Phi-3 Mini responding correctly to blockchain queries${NC}"
+        echo -e "${GREEN}✅ vLLM TinyLlama 1.1B responding correctly to blockchain queries${NC}"
         echo -e "${CYAN}Sample response: ${response:0:150}...${NC}"
     else
-        echo -e "${ORANGE}⚠️  vLLM Phi-3 Mini response may need tuning${NC}"
+        echo -e "${ORANGE}⚠️  vLLM TinyLlama 1.1B response may need tuning${NC}"
         echo -e "${CYAN}Response: ${response:0:150}...${NC}"
     fi
 }
@@ -532,10 +532,10 @@ main() {
     echo -e "${ORANGE}2. Monitor performance:${NC} ./scripts/performance-dashboard.sh"
     echo -e "${ORANGE}3. View AI decisions:${NC} ./scripts/ai-monitor.sh"
     echo -e "${ORANGE}4. Attach to node:${NC} tmux attach-session -t node1"
-    echo -e "${ORANGE}5. Check vLLM status:${NC} sudo systemctl status vllm-phi3"
+    echo -e "${ORANGE}5. Check vLLM status:${NC} sudo systemctl status vllm-tinyllama"
     
     echo -e "\n${PURPLE}🤖 Your blockchain is now truly AI-powered with vLLM!${NC}"
-    echo -e "${CYAN}Phi-3 Mini (3.8B) will make ultra-fast decisions every 500ms${NC}"
+    echo -e "${CYAN}TinyLlama 1.1B will make ultra-fast decisions every 250ms${NC}"
     echo -e "${CYAN}Expected performance: 5M+ TPS with intelligent GPU switching${NC}"
 }
 

@@ -4,8 +4,8 @@ CC = gcc-9
 CUDA_PATH ?= /usr/local/cuda
 CUDA_ARCH ?= sm_89
 NVCC_FLAGS = -O3 -arch=$(CUDA_ARCH) -Xcompiler -fPIC -allow-unsupported-compiler -std=c++11
-CUDA_SRC = common/gpu/cuda_kernels.cu
-CUDA_OBJ = common/gpu/cuda_kernels.o
+CUDA_SRC = common/gpu/native/cuda_kernels.cu
+CUDA_OBJ = common/gpu/native/cuda_kernels.o
 CUDA_LIB = common/gpu/libcuda_kernels.so
 
 .PHONY: cuda clean check-cuda

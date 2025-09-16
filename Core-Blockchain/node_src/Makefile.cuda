@@ -12,7 +12,7 @@ CGO_CFLAGS = -I$(CUDA_PATH)/include -I/usr/include
 CGO_LDFLAGS = -L$(CUDA_PATH)/lib64 -L/usr/lib/x86_64-linux-gnu -lcuda -lcudart -lOpenCL
 
 # CUDA source files
-CUDA_SOURCES = common/gpu/cuda_kernels.cu
+CUDA_SOURCES = common/gpu/native/cuda_kernels.cu
 CUDA_OBJECTS = $(CUDA_SOURCES:.cu=.o)
 LIBCUDA = common/gpu/libsplendor_cuda.a
 
@@ -35,7 +35,7 @@ cuda-lib: $(CUDA_OBJECTS)
 # Build geth with CUDA support
 .PHONY: geth-cuda
 geth-cuda: cuda-lib
-	CGO_CFLAGS="$(CGO_CFLAGS)" CGO_LDFLAGS="$(CGO_LDFLAGS) -Lcommon/gpu -lsplendor_cuda" go build -tags gpu -o build/bin/geth ./cmd/geth
+	CGO_CFLAGS="$(CGO_CFLAGS)" CGO_LDFLAGS="$(CGO_LDFLAGS) -Lcommon/gpu -lsplendor_cuda" go build -tags "gpu,no_liboqs" -o build/bin/geth ./cmd/geth
 
 # Build all tools with CUDA support
 .PHONY: all-cuda

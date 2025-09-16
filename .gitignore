@@ -1,0 +1,193 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+# Dependency directories (remove the comment below to include it)
+# vendor/
+
+# Node.js dependencies
+node_modules/
+
+# Go workspace file
+go.work
+
+
+# Node modules
+System-Contracts/node_modules/
+System-Contracts/artifacts/
+System-Contracts/cache/
+System-Contracts/typechain-types/
+
+# Environment files
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+*.lcov
+
+# nyc test coverage
+.nyc_output
+
+# Dependency directories
+jspm_packages/
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Optional REPL history
+.node_repl_history
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# parcel-bundler cache (https://parceljs.org/)
+.cache
+.parcel-cache
+
+# next.js build output
+.next
+
+# nuxt.js build output
+.nuxt
+
+# vuepress build output
+.vuepress/dist
+
+# Serverless directories
+.serverless
+
+# FuseBox cache
+.fusebox/
+
+# DynamoDB Local files
+.dynamodb/
+
+# TernJS port file
+.tern-port
+
+# Hardhat files
+System-Contracts/artifacts
+System-Contracts/cache
+System-Contracts/coverage
+System-Contracts/coverage.json
+System-Contracts/typechain
+System-Contracts/typechain-types
+
+# Validator Controller - Personal use only, ignore entire directory
+validator-controller/
+
+# Solidity coverage files
+coverage/
+coverage.json
+
+
+
+# Go installation archives
+*.tar.gz
+
+# Untracked files to ignore
+
+gitignore.txt
+
+# Server configurations (sensitive)
+server-configs/
+
+# Monitoring system (entire folder - contains sensitive tokens)
+monitoring/
+enode-api-server.js
+splendor-rpc.org
+
+# CUDA wallet testing (contains private keys and test data)
+cuda-wallet-test/
+GPU_PARALLEL_PROCESSING_ANALYSIS_AND_IMPROVEMENTS.md
+
+# CUDA compiled files
+*.o
+*.a
+Core-Blockchain/scripts/performance-monitor.py
+
+# Build artifacts and temporary files (generated during build/runtime)
+Core-Blockchain/node_src/build/bin/
+Core-Blockchain/node_src/build/pkg/
+Core-Blockchain/node_src/crypto/liboqs/build/
+Core-Blockchain/node_src/crypto/liboqs/install/
+Core-Blockchain/node_src/common/gpu/libsplendor_cuda.so
+Core-Blockchain/node_src/common/gpu/libsplendor_cuda.a
+Core-Blockchain/node_src/common/gpu/*.o
+Core-Blockchain/tmp/
+/tmp/splendor_liboqs
+
+# AI/vLLM temporary files
+/tmp/vllm.log
+/tmp/vllm.pid
+
+# Test output and profiling
+cpu.prof
+mem.prof
+/tmp/mldsa_test_verbose.log
+
+# Chaindata (runtime blockchain data)
+Core-Blockchain/chaindata/node*/
+!Core-Blockchain/chaindata/.gitkeep
+
+# PM2 ecosystem files
+ecosystem.config.js
+.pm2/
+
+# Python virtual environments (vLLM)
+/opt/vllm-env/
+
+# CUDA installer files (downloaded during setup)
+cuda_*.run
+*.run
+
+# Runtime logs
+geth-*.log
+nohup.out
+
+# Proof artifacts (evidence - keep in repo for verification)
+# proofs/ folder is kept for TPS evidence and reproducibility

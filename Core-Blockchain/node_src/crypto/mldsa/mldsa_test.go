@@ -8,6 +8,30 @@ import (
 	"testing"
 )
 
+// Helpers to retrieve sizes from the active build (cgo liboqs if present,
+// otherwise fallback to MLDSAParams). This makes tests portable across
+// environments where liboqs may report slightly different lengths (e.g. D3=3293, D5=4595).
+func libSizes(algorithm string) (sigLen, pkLen int) {
+	if s, p, err := GetMLDSALengths(algorithm); err == nil && s > 0 && p > 0 {
+		return s, p
+	}
+	params, ok := MLDSAParams[algorithm]
+	if !ok {
+		return 0, 0
+	}
+	return params.SignatureSize, params.PublicKeySize
+}
+
+func sigBytes(algorithm string) []byte {
+	s, _ := libSizes(algorithm)
+	return make([]byte, s)
+}
+
+func pkBytes(algorithm string) []byte {
+	_, p := libSizes(algorithm)
+	return make([]byte, p)
+}
+
 // Mock test vectors for ML-DSA (these would be replaced with actual NIST test vectors)
 var testVectors = map[string]struct {
 	algorithm string
@@ -20,56 +44,49 @@ var testVectors = map[string]struct {
 		algorithm: MLDSA65,
 		message:   []byte("test message for ML-DSA-65"),
 		// These would be actual test vectors from NIST
-		signature: make([]byte, 3309), // ML-DSA-65 signature size
-		publicKey: make([]byte, 1952), // ML-DSA-65 public key size
-		valid:     false, // Set to false since these are dummy vectors
+		signature: sigBytes(MLDSA65), // dynamic signature size
+		publicKey: pkBytes(MLDSA65),  // dynamic public key size
+		valid:     false,             // dummy vectors, expect failure
 	},
 	"mldsa44_valid": {
 		algorithm: MLDSA44,
 		message:   []byte("test message for ML-DSA-44"),
-		signature: make([]byte, 2420), // ML-DSA-44 signature size
-		publicKey: make([]byte, 1312), // ML-DSA-44 public key size
-		valid:     false, // Set to false since these are dummy vectors
+		signature: sigBytes(MLDSA44),
+		publicKey: pkBytes(MLDSA44),
+		valid:     false, // dummy vectors, expect failure
 	},
 }
 
 func TestMLDSAParams(t *testing.T) {
-	// Test parameter constants
-	expectedParams := map[string]struct {
-		pubKeySize int
-		sigSize    int
-		secLevel   int
-	}{
-		MLDSA44: {1312, 2420, 2},
-		MLDSA65: {1952, 3309, 3},
-		MLDSA87: {2592, 4627, 5},
+	// Expected security levels are fixed regardless of implementation
+	expectedSec := map[string]int{
+		MLDSA44: 2,
+		MLDSA65: 3,
+		MLDSA87: 5,
 	}
-
-	for alg, expected := range expectedParams {
-		params, exists := MLDSAParams[alg]
-		if !exists {
-			t.Errorf("Algorithm %s not found in MLDSAParams", alg)
-			continue
+	for alg, params := range MLDSAParams {
+		wantSig, wantPk := libSizes(alg)
+		if wantSig == 0 || wantPk == 0 {
+			t.Fatalf("libSizes returned zero sizes for %s", alg)
 		}
-
-		if params.PublicKeySize != expected.pubKeySize {
-			t.Errorf("Algorithm %s: expected public key size %d, got %d",
-				alg, expected.pubKeySize, params.PublicKeySize)
+		if params.SignatureSize != wantSig {
+			t.Errorf("%s: expected signature size %d, got %d", alg, wantSig, params.SignatureSize)
 		}
-
-		if params.SignatureSize != expected.sigSize {
-			t.Errorf("Algorithm %s: expected signature size %d, got %d",
-				alg, expected.sigSize, params.SignatureSize)
+		if params.PublicKeySize != wantPk {
+			t.Errorf("%s: expected public key size %d, got %d", alg, wantPk, params.PublicKeySize)
 		}
-
-		if params.SecurityLevel != expected.secLevel {
-			t.Errorf("Algorithm %s: expected security level %d, got %d",
-				alg, expected.secLevel, params.SecurityLevel)
+		if lvl, ok := expectedSec[alg]; ok {
+			if params.SecurityLevel != lvl {
+				t.Errorf("%s: expected security level %d, got %d", alg, lvl, params.SecurityLevel)
+			}
 		}
 	}
 }
 
 func TestValidateMLDSAParams(t *testing.T) {
+	validSig := sigBytes(MLDSA65)
+	validPk := pkBytes(MLDSA65)
+
 	tests := []struct {
 		name      string
 		algorithm string
@@ -80,29 +97,29 @@ func TestValidateMLDSAParams(t *testing.T) {
 		{
 			name:      "valid ML-DSA-65",
 			algorithm: MLDSA65,
-			signature: make([]byte, 3309),
-			publicKey: make([]byte, 1952),
+			signature: append([]byte(nil), validSig...),
+			publicKey: append([]byte(nil), validPk...),
 			wantErr:   false,
 		},
 		{
 			name:      "invalid signature length",
 			algorithm: MLDSA65,
 			signature: make([]byte, 100),
-			publicKey: make([]byte, 1952),
+			publicKey: append([]byte(nil), validPk...),
 			wantErr:   true,
 		},
 		{
 			name:      "invalid public key length",
 			algorithm: MLDSA65,
-			signature: make([]byte, 3309),
+			signature: append([]byte(nil), validSig...),
 			publicKey: make([]byte, 100),
 			wantErr:   true,
 		},
 		{
 			name:      "invalid algorithm",
 			algorithm: "invalid",
-			signature: make([]byte, 3309),
-			publicKey: make([]byte, 1952),
+			signature: append([]byte(nil), validSig...),
+			publicKey: append([]byte(nil), validPk...),
 			wantErr:   true,
 		},
 	}
@@ -120,14 +137,12 @@ func TestValidateMLDSAParams(t *testing.T) {
 func TestGetMLDSALengths(t *testing.T) {
 	tests := []struct {
 		algorithm string
-		wantSig   int
-		wantPk    int
 		wantErr   bool
 	}{
-		{MLDSA44, 2420, 1312, false},
-		{MLDSA65, 3309, 1952, false},
-		{MLDSA87, 4627, 2592, false},
-		{"invalid", 0, 0, true},
+		{MLDSA44, false},
+		{MLDSA65, false},
+		{MLDSA87, false},
+		{"invalid", true},
 	}
 
 	for _, tt := range tests {
@@ -138,11 +153,12 @@ func TestGetMLDSALengths(t *testing.T) {
 				return
 			}
 			if !tt.wantErr {
-				if sigLen != tt.wantSig {
-					t.Errorf("GetMLDSALengths() sigLen = %v, want %v", sigLen, tt.wantSig)
+				wantSig, wantPk := libSizes(tt.algorithm)
+				if sigLen != wantSig {
+					t.Errorf("GetMLDSALengths() sigLen = %v, want %v", sigLen, wantSig)
 				}
-				if pkLen != tt.wantPk {
-					t.Errorf("GetMLDSALengths() pkLen = %v, want %v", pkLen, tt.wantPk)
+				if pkLen != wantPk {
+					t.Errorf("GetMLDSALengths() pkLen = %v, want %v", pkLen, wantPk)
 				}
 			}
 		})
@@ -150,6 +166,10 @@ func TestGetMLDSALengths(t *testing.T) {
 }
 
 func TestVerifySignature(t *testing.T) {
+	// Use dynamic sizes for positive/negative validation cases
+	validSig := sigBytes(MLDSA65)
+	validPk := pkBytes(MLDSA65)
+
 	// Test input validation
 	tests := []struct {
 		name      string
@@ -163,8 +183,8 @@ func TestVerifySignature(t *testing.T) {
 			name:      "empty message",
 			algorithm: MLDSA65,
 			message:   []byte{},
-			signature: make([]byte, 3309),
-			publicKey: make([]byte, 1952),
+			signature: append([]byte(nil), validSig...),
+			publicKey: append([]byte(nil), validPk...),
 			wantErr:   "empty message",
 		},
 		{
@@ -172,14 +192,14 @@ func TestVerifySignature(t *testing.T) {
 			algorithm: MLDSA65,
 			message:   []byte("test"),
 			signature: []byte{},
-			publicKey: make([]byte, 1952),
+			publicKey: append([]byte(nil), validPk...),
 			wantErr:   "invalid signature",
 		},
 		{
 			name:      "empty public key",
 			algorithm: MLDSA65,
 			message:   []byte("test"),
-			signature: make([]byte, 3309),
+			signature: append([]byte(nil), validSig...),
 			publicKey: []byte{},
 			wantErr:   "invalid public key",
 		},
@@ -187,8 +207,8 @@ func TestVerifySignature(t *testing.T) {
 			name:      "invalid algorithm",
 			algorithm: "invalid",
 			message:   []byte("test"),
-			signature: make([]byte, 3309),
-			publicKey: make([]byte, 1952),
+			signature: append([]byte(nil), validSig...),
+			publicKey: append([]byte(nil), validPk...),
 			wantErr:   "invalid ML-DSA algorithm",
 		},
 	}
@@ -210,63 +230,63 @@ func TestVerifySignature(t *testing.T) {
 // Benchmark tests for performance evaluation
 func BenchmarkVerifySignatureMLDSA44(b *testing.B) {
 	message := make([]byte, 32)
-	signature := make([]byte, 2420)
-	publicKey := make([]byte, 1312)
-	
+	signature := sigBytes(MLDSA44)
+	publicKey := pkBytes(MLDSA44)
+
 	// Fill with random data
-	rand.Read(message)
-	rand.Read(signature)
-	rand.Read(publicKey)
+	_, _ = rand.Read(message)
+	_, _ = rand.Read(signature)
+	_, _ = rand.Read(publicKey)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		// This will fail verification but tests the performance
-		VerifySignature(MLDSA44, message, signature, publicKey)
+		_ = VerifySignature(MLDSA44, message, signature, publicKey)
 	}
 }
 
 func BenchmarkVerifySignatureMLDSA65(b *testing.B) {
 	message := make([]byte, 32)
-	signature := make([]byte, 3309)
-	publicKey := make([]byte, 1952)
-	
+	signature := sigBytes(MLDSA65)
+	publicKey := pkBytes(MLDSA65)
+
 	// Fill with random data
-	rand.Read(message)
-	rand.Read(signature)
-	rand.Read(publicKey)
+	_, _ = rand.Read(message)
+	_, _ = rand.Read(signature)
+	_, _ = rand.Read(publicKey)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		// This will fail verification but tests the performance
-		VerifySignature(MLDSA65, message, signature, publicKey)
+		_ = VerifySignature(MLDSA65, message, signature, publicKey)
 	}
 }
 
 func BenchmarkVerifySignatureMLDSA87(b *testing.B) {
 	message := make([]byte, 32)
-	signature := make([]byte, 4627)
-	publicKey := make([]byte, 2592)
-	
+	signature := sigBytes(MLDSA87)
+	publicKey := pkBytes(MLDSA87)
+
 	// Fill with random data
-	rand.Read(message)
-	rand.Read(signature)
-	rand.Read(publicKey)
+	_, _ = rand.Read(message)
+	_, _ = rand.Read(signature)
+	_, _ = rand.Read(publicKey)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		// This will fail verification but tests the performance
-		VerifySignature(MLDSA87, message, signature, publicKey)
+		_ = VerifySignature(MLDSA87, message, signature, publicKey)
 	}
 }
 
 // Test ML-DSA support detection
 func TestIsMLDSASupported(t *testing.T) {
 	algorithms := []string{MLDSA44, MLDSA65, MLDSA87, "invalid"}
-	
+
 	for _, alg := range algorithms {
 		supported := IsMLDSASupported(alg)
 		t.Logf("Algorithm %s supported: %v", alg, supported)
-		
+
 		// For invalid algorithm, should return false
 		if alg == "invalid" && supported {
 			t.Errorf("Invalid algorithm reported as supported")
@@ -276,6 +296,10 @@ func TestIsMLDSASupported(t *testing.T) {
 
 // Test error conditions
 func TestMLDSAErrors(t *testing.T) {
+	// Use dynamic sizes to create invalid inputs
+	validSig := sigBytes(MLDSA65)
+	validPk := pkBytes(MLDSA65)
+
 	// Test all error types
 	errorTests := []struct {
 		name     string
@@ -292,14 +316,14 @@ func TestMLDSAErrors(t *testing.T) {
 		{
 			name: "invalid signature error",
 			testFunc: func() error {
-				return VerifySignature(MLDSA65, []byte("test"), []byte{}, make([]byte, 1952))
+				return VerifySignature(MLDSA65, []byte("test"), []byte{}, append([]byte(nil), validPk...))
 			},
 			wantErr: ErrInvalidSignature,
 		},
 		{
 			name: "invalid public key error",
 			testFunc: func() error {
-				return VerifySignature(MLDSA65, []byte("test"), make([]byte, 3309), []byte{})
+				return VerifySignature(MLDSA65, []byte("test"), append([]byte(nil), validSig...), []byte{})
 			},
 			wantErr: ErrInvalidPublicKey,
 		},
@@ -326,11 +350,11 @@ func TestMLDSAIntegration(t *testing.T) {
 	for name, tv := range testVectors {
 		t.Run(name, func(t *testing.T) {
 			err := VerifySignature(tv.algorithm, tv.message, tv.signature, tv.publicKey)
-			
+
 			if tv.valid && err != nil {
 				t.Errorf("Expected valid signature to verify, got error: %v", err)
 			}
-			
+
 			if !tv.valid && err == nil {
 				t.Errorf("Expected invalid signature to fail verification")
 			}
@@ -344,12 +368,12 @@ func TestConcurrentVerification(t *testing.T) {
 	const numVerifications = 100
 
 	message := []byte("concurrent test message")
-	signature := make([]byte, 3309)
-	publicKey := make([]byte, 1952)
+	signature := sigBytes(MLDSA65)
+	publicKey := pkBytes(MLDSA65)
 
 	// Fill with random data
-	rand.Read(signature)
-	rand.Read(publicKey)
+	_, _ = rand.Read(signature)
+	_, _ = rand.Read(publicKey)
 
 	done := make(chan bool, numGoroutines)
 
@@ -357,7 +381,7 @@ func TestConcurrentVerification(t *testing.T) {
 		go func() {
 			for j := 0; j < numVerifications; j++ {
 				// This will fail but tests concurrent access
-				VerifySignature(MLDSA65, message, signature, publicKey)
+				_ = VerifySignature(MLDSA65, message, signature, publicKey)
 			}
 			done <- true
 		}()

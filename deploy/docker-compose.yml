@@ -1,0 +1,106 @@
+version: "3.9"
+
+# Production-oriented docker-compose for Splendor geth-based nodes
+# - Strict signature verification for x402 is enabled via X402_STRICT_VERIFY=1
+# - RPC node exposes only eth, net, web3, x402 APIs
+# - Validator example shows how to use an external signer (clef) instead of HTTP unlock
+#
+# IMPORTANT:
+# - Replace NETWORK_ID, genesis.json, and bootstrap peers according to your network
+# - Do NOT enable personal API or --allow-insecure-unlock in production
+# - Prefer an HSM or a hardened clef instance for validator signing
+
+name: splendor-x402
+
+services:
+  rpc:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.geth-prod
+    container_name: splendor-rpc
+    restart: unless-stopped
+    user: "10001:10001"
+    environment:
+      # Strict signature verification for x402 (production)
+      - X402_STRICT_VERIFY=1
+      # Path to genesis inside container (mounted below)
+      - GENESIS_PATH=/genesis/genesis.json
+      - NETWORK_ID=1337
+      - HTTP_ADDR=0.0.0.0
+      - HTTP_PORT=8545
+      - HTTP_APIS=eth,net,web3,x402
+      # Optional: WebSocket
+      - WS_ENABLE=false
+      - WS_ADDR=0.0.0.0
+      - WS_PORT=8546
+    volumes:
+      - rpc-data:/data
+      - ../Core-Blockchain/genesis.json:/genesis/genesis.json:ro
+      - ./start-geth.sh:/start-geth.sh:ro
+    command: ["/bin/sh", "-c", "/start-geth.sh"]
+    ports:
+      - "8545:8545"
+
+  # Example validator using an external signer (clef). Adjust for your environment.
+  # This service is provided as a template; ensure you secure clef (rules file, UI policy)
+  # and connect to your actual keystore/HSM in production.
+  validator:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.geth-prod
+    container_name: splendor-validator
+    restart: unless-stopped
+    user: "10001:10001"
+    depends_on:
+      - clef
+    environment:
+      - X402_STRICT_VERIFY=1
+      - GENESIS_PATH=/genesis/genesis.json
+      - NETWORK_ID=1337
+      # Validator nodes typically do not expose public HTTP; if you do, restrict it heavily
+      - HTTP_ADDR=0.0.0.0
+      - HTTP_PORT=8547
+      - HTTP_APIS=eth,net,web3  # omit x402 on validator unless needed
+      # Pass extra opts to geth (e.g., signer IPC and mining options). Replace 0xYourEtherbase.
+      - EXTRA_OPTS=--signer=/clef/clef.ipc --mine --miner.etherbase=0x0000000000000000000000000000000000000000
+    volumes:
+      - validator-data:/data
+      - ../Core-Blockchain/genesis.json:/genesis/genesis.json:ro
+      - ./start-geth.sh:/start-geth.sh:ro
+      # Mount clef IPC socket
+      - clef-sock:/clef
+    command: ["/bin/sh", "-c", "/start-geth.sh"]
+    ports:
+      - "8547:8547"
+
+  # clef external signer (template). For production:
+  # - Use a rules file that matches your policy and requires operator confirmation (no --stdio-ui in prod)
+  # - Mount a secure keystore or integrate with an HSM-backed signer
+  clef:
+    image: ethereum/client-go:stable
+    container_name: splendor-clef
+    restart: unless-stopped
+    # NOTE: The clef binary is included in client-go images; if not, use a dedicated clef image.
+    command:
+      - clef
+      - --chainid
+      - "1337"
+      - --keystore
+      - /keys
+      - --ipcpath
+      - /clef/clef.ipc
+      # In production, remove --stdio-ui and configure proper UI/rules/acl
+      - --stdio-ui
+      # - --rules
+      # - /clef/rules.js
+    volumes:
+      - clef-sock:/clef
+      # Replace ./keystore with your secure keystore directory (or HSM integration)
+      - ./keystore:/keys
+      # - ./rules.js:/clef/rules.js:ro
+    # No ports exposed; IPC socket is shared via volume
+
+volumes:
+  rpc-data:
+  validator-data:
+  clef-sock:

@@ -421,35 +421,105 @@ func startNode(ctx *cli.Context, stack *node.Node, backend ethapi.Backend) {
 	}
 }
 
-// initializeGPUAcceleration initializes GPU and AI acceleration if enabled
+	// initializeGPUAcceleration initializes GPU and AI acceleration if enabled
 func initializeGPUAcceleration(ctx *cli.Context) {
+	// Helper parsers from environment variables
+	getEnvBool := func(key string, def bool) bool {
+		v := strings.ToLower(strings.TrimSpace(os.Getenv(key)))
+		switch v {
+		case "true", "1", "yes", "y", "on":
+			return true
+		case "false", "0", "no", "n", "off":
+			return false
+		default:
+			return def
+		}
+	}
+	getEnvInt := func(key string, def int) int {
+		if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+			if n, err := strconv.Atoi(v); err == nil {
+				return n
+			}
+		}
+		return def
+	}
+	getEnvUint64 := func(key string, def uint64) uint64 {
+		if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+			if n, err := strconv.ParseUint(v, 10, 64); err == nil {
+				return n
+			}
+		}
+		return def
+	}
+	getEnvFloat := func(key string, def float64) float64 {
+		if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+			if f, err := strconv.ParseFloat(v, 64); err == nil {
+				return f
+			}
+		}
+		return def
+	}
+	getEnvDurationSeconds := func(key string, def time.Duration) time.Duration {
+		if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+			if n, err := strconv.Atoi(v); err == nil {
+				return time.Duration(n) * time.Second
+			}
+			if d, err := time.ParseDuration(v); err == nil {
+				return d
+			}
+		}
+		return def
+	}
+	getEnvDurationMS := func(key string, def time.Duration) time.Duration {
+		if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+			if n, err := strconv.Atoi(v); err == nil {
+				return time.Duration(n) * time.Millisecond
+			}
+			if d, err := time.ParseDuration(v); err == nil {
+				return d
+			}
+		}
+		return def
+	}
+
 	// Check if GPU acceleration is enabled via environment variable
-	enableGPU := os.Getenv("ENABLE_GPU")
-	if enableGPU != "true" {
+	if !getEnvBool("ENABLE_GPU", false) {
 		log.Info("GPU acceleration disabled")
 		return
 	}
 
-	log.Info("Initializing GPU acceleration...")
+	log.Info("Initializing GPU acceleration from environment...")
 
-	// Create hybrid processor configuration
+	// Map preferred GPU type
+	gpuType := func() gpu.GPUType {
+		switch strings.ToUpper(strings.TrimSpace(os.Getenv("PREFERRED_GPU_TYPE"))) {
+		case "CUDA":
+			return gpu.GPUTypeCUDA
+		case "OPENCL":
+			return gpu.GPUTypeOpenCL
+		default:
+			return gpu.GPUTypeCUDA
+		}
+	}()
+
+	// Create hybrid processor configuration from environment
 	hybridConfig := &hybrid.HybridConfig{
 		EnableGPU:             true,
-		GPUThreshold:          8000,  // Minimum 8K transactions for GPU
-		CPUGPURatio:           0.85,  // 85% GPU, 15% CPU
-		AdaptiveLoadBalancing: true,
-		PerformanceMonitoring: true,
-		MaxCPUUtilization:     0.85,
-		MaxGPUUtilization:     0.95,
-		ThroughputTarget:      8000000, // 8M TPS target
+		GPUThreshold:          getEnvInt("GPU_THRESHOLD", 1000),       // default aligned with .env
+		CPUGPURatio:           getEnvFloat("CPU_GPU_RATIO", 0.85),
+		AdaptiveLoadBalancing: getEnvBool("ADAPTIVE_LOAD_BALANCING", true),
+		PerformanceMonitoring: getEnvBool("PERFORMANCE_MONITORING", true),
+		MaxCPUUtilization:     getEnvFloat("MAX_CPU_UTILIZATION", 0.85),
+		MaxGPUUtilization:     getEnvFloat("MAX_GPU_UTILIZATION", 0.95),
+		ThroughputTarget:      getEnvUint64("THROUGHPUT_TARGET", 8000000),
 		GPUConfig: &gpu.GPUConfig{
-			PreferredGPUType: gpu.GPUTypeCUDA,
-			MaxBatchSize:     80000,
-			MaxMemoryUsage:   17179869184, // 16GB
-			HashWorkers:      24,
-			SignatureWorkers: 24,
-			TxWorkers:        24,
-			EnablePipelining: true,
+			PreferredGPUType: gpuType,
+			MaxBatchSize:     getEnvInt("GPU_MAX_BATCH_SIZE", 80000),
+			MaxMemoryUsage:   getEnvUint64("GPU_MAX_MEMORY_USAGE", 17179869184), // 16GB default
+			HashWorkers:      getEnvInt("GPU_HASH_WORKERS", 24),
+			SignatureWorkers: getEnvInt("GPU_SIGNATURE_WORKERS", 24),
+			TxWorkers:        getEnvInt("GPU_TX_WORKERS", 24),
+			EnablePipelining: getEnvBool("GPU_ENABLE_PIPELINING", true),
 		},
 	}
 
@@ -458,30 +528,54 @@ func initializeGPUAcceleration(ctx *cli.Context) {
 		log.Warn("Failed to initialize GPU acceleration, continuing with CPU only", "error", err)
 		return
 	}
-
-	// Initialize AI load balancer if available
-	aiConfig := &ai.AIConfig{
-		LLMEndpoint:         "http://localhost:8000/v1/completions",
-		LLMModel:           "microsoft/Phi-3-mini-4k-instruct",
-		LLMTimeout:         2 * time.Second,
-		UpdateInterval:     500 * time.Millisecond,
-		HistorySize:        100,
-		LearningRate:       0.15,
-		ConfidenceThreshold: 0.75,
+	// Also initialize the global GPU processor so gpu_* RPC reflects availability
+	if err := gpu.InitGlobalGPUProcessor(hybridConfig.GPUConfig); err != nil {
+		log.Warn("Failed to initialize global GPU processor", "error", err)
+	} else {
+		log.Info("Global GPU processor initialized", "preferredType", hybridConfig.GPUConfig.PreferredGPUType)
 	}
 
-	hybridProcessor := hybrid.GetGlobalHybridProcessor()
-	if hybridProcessor != nil {
-		if err := ai.InitGlobalAILoadBalancer(aiConfig, hybridProcessor); err != nil {
-			log.Warn("Failed to initialize AI load balancer", "error", err)
-		} else {
-			log.Info("AI-powered GPU load balancing activated")
+	// Initialize AI load balancer if enabled
+	if getEnvBool("ENABLE_AI_LOAD_BALANCING", true) {
+		// Get AI configuration with proper defaults
+		llmEndpoint := strings.TrimSpace(os.Getenv("LLM_ENDPOINT"))
+		llmModel := strings.TrimSpace(os.Getenv("LLM_MODEL"))
+		
+		// Use default configuration if environment variables are empty
+		defaultConfig := ai.DefaultAIConfig()
+		if llmEndpoint == "" {
+			llmEndpoint = defaultConfig.LLMEndpoint
 		}
+		if llmModel == "" {
+			llmModel = defaultConfig.LLMModel
+		}
+		
+		aiConfig := &ai.AIConfig{
+			LLMEndpoint:         llmEndpoint,
+			LLMModel:            llmModel,
+			LLMTimeout:          getEnvDurationSeconds("LLM_TIMEOUT_SECONDS", 2*time.Second),
+			UpdateInterval:      getEnvDurationMS("AI_UPDATE_INTERVAL_MS", 500*time.Millisecond),
+			HistorySize:         getEnvInt("AI_HISTORY_SIZE", 100),
+			LearningRate:        getEnvFloat("AI_LEARNING_RATE", 0.15),
+			ConfidenceThreshold: getEnvFloat("AI_CONFIDENCE_THRESHOLD", 0.75),
+		}
+
+		if hybridProcessor := hybrid.GetGlobalHybridProcessor(); hybridProcessor != nil {
+			if err := ai.InitGlobalAILoadBalancer(aiConfig, hybridProcessor); err != nil {
+				log.Warn("Failed to initialize AI load balancer", "error", err)
+			} else {
+				log.Info("AI-powered GPU load balancing activated")
+			}
+		}
+	} else {
+		log.Info("AI load balancer disabled by configuration")
 	}
 
-	log.Info("GPU acceleration initialized successfully", 
+	log.Info("GPU acceleration initialized successfully",
 		"gpuThreshold", hybridConfig.GPUThreshold,
 		"targetTPS", hybridConfig.ThroughputTarget,
+		"gpuType", hybridConfig.GPUConfig.PreferredGPUType,
+		"maxBatch", hybridConfig.GPUConfig.MaxBatchSize,
 	)
 }
 

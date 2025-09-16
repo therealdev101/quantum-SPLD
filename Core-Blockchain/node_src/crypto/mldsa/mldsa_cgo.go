@@ -132,6 +132,20 @@ import (
 	"unsafe"
 )
 
+// mapToOQSName maps Splendor ML-DSA identifiers to liboqs algorithm names.
+func mapToOQSName(alg string) string {
+	switch alg {
+	case MLDSA44:
+		return "Dilithium2"
+	case MLDSA65:
+		return "Dilithium3"
+	case MLDSA87:
+		return "Dilithium5"
+	default:
+		return alg
+	}
+}
+
 // VerifySignature verifies an ML-DSA signature using liboqs
 func VerifySignature(algorithm string, message, signature, publicKey []byte) error {
 	if len(message) == 0 {
@@ -150,7 +164,7 @@ func VerifySignature(algorithm string, message, signature, publicKey []byte) err
 	}
 
 	// Convert Go strings and slices to C types
-	cAlgName := C.CString(algorithm)
+	cAlgName := C.CString(mapToOQSName(algorithm))
 	defer C.free(unsafe.Pointer(cAlgName))
 
 	var cMessage *C.uint8_t
@@ -189,13 +203,17 @@ func GetMLDSALengths(algorithm string) (sigLen, pkLen int, err error) {
 		return 0, 0, ErrInvalidAlgorithm
 	}
 
-	cAlgName := C.CString(algorithm)
+	cAlgName := C.CString(mapToOQSName(algorithm))
 	defer C.free(unsafe.Pointer(cAlgName))
 
 	var cSigLen, cPkLen C.size_t
 	result := C.get_mldsa_lengths(cAlgName, &cSigLen, &cPkLen)
 
 	if result != 0 {
+		// Fallback to static sizes when liboqs can't provide them at runtime
+		if p, ok := MLDSAParams[algorithm]; ok {
+			return p.SignatureSize, p.PublicKeySize, nil
+		}
 		return 0, 0, ErrInvalidAlgorithm
 	}
 
@@ -204,7 +222,7 @@ func GetMLDSALengths(algorithm string) (sigLen, pkLen int, err error) {
 
 // IsMLDSASupported checks if ML-DSA is supported by the linked liboqs
 func IsMLDSASupported(algorithm string) bool {
-	cAlgName := C.CString(algorithm)
+	cAlgName := C.CString(mapToOQSName(algorithm))
 	defer C.free(unsafe.Pointer(cAlgName))
 
 	result := C.is_mldsa_algorithm_supported(cAlgName)
@@ -229,7 +247,7 @@ func GenerateKeyPair(algorithm string) (publicKey, secretKey []byte, err error) 
 	publicKey = make([]byte, pkLen)
 	secretKey = make([]byte, skLen)
 
-	cAlgName := C.CString(algorithm)
+	cAlgName := C.CString(mapToOQSName(algorithm))
 	defer C.free(unsafe.Pointer(cAlgName))
 
 	cPublicKey := (*C.uint8_t)(unsafe.Pointer(&publicKey[0]))
@@ -260,7 +278,7 @@ func SignMessage(algorithm string, message, secretKey []byte) (signature []byte,
 
 	signature = make([]byte, sigLen)
 
-	cAlgName := C.CString(algorithm)
+	cAlgName := C.CString(mapToOQSName(algorithm))
 	defer C.free(unsafe.Pointer(cAlgName))
 
 	cMessage := (*C.uint8_t)(unsafe.Pointer(&message[0]))
@@ -321,7 +339,7 @@ func BatchVerifySignatures(algorithm string, messages [][]byte, signatures [][]b
 		cPublicKeyLens[i] = C.size_t(len(publicKeys[i]))
 	}
 
-	cAlgName := C.CString(algorithm)
+	cAlgName := C.CString(mapToOQSName(algorithm))
 	defer C.free(unsafe.Pointer(cAlgName))
 
 	// Call batch verification

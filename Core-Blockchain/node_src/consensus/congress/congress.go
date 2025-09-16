@@ -1366,6 +1366,10 @@ func (c *Congress) PreHandle(chain consensus.ChainHeaderReader, header *types.He
 
 // IsSysTransaction checks whether a specific transaction is a system transaction.
 func (c *Congress) IsSysTransaction(sender common.Address, tx *types.Transaction, header *types.Header) (bool, error) {
+	// Treat typed x402 envelope as a system transaction to execute in consensus.
+	if tx.Type() == types.X402TxType {
+		return true, nil
+	}
 	if tx.To() == nil {
 		return false, nil
 	}

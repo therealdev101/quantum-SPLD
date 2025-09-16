@@ -93,21 +93,6 @@ var PrecompiledContractsBerlin = map[common.Address]PrecompiledContract{
 	common.BytesToAddress([]byte{9}): &blake2F{},
 }
 
-// PrecompiledContractsPQ contains the post-quantum precompiled contracts
-// Available after the PQT fork
-var PrecompiledContractsPQ = map[common.Address]PrecompiledContract{
-	common.BytesToAddress([]byte{1}):    &ecrecover{},
-	common.BytesToAddress([]byte{2}):    &sha256hash{},
-	common.BytesToAddress([]byte{3}):    &ripemd160hash{},
-	common.BytesToAddress([]byte{4}):    &dataCopy{},
-	common.BytesToAddress([]byte{5}):    &bigModExp{eip2565: true},
-	common.BytesToAddress([]byte{6}):    &bn256AddIstanbul{},
-	common.BytesToAddress([]byte{7}):    &bn256ScalarMulIstanbul{},
-	common.BytesToAddress([]byte{8}):    &bn256PairingIstanbul{},
-	common.BytesToAddress([]byte{9}):    &blake2F{},
-	common.BytesToAddress([]byte{0x01, 0x00}): &mldsaVerify{}, // ML-DSA verify at 0x0100
-}
-
 // PrecompiledContractsBLS contains the set of pre-compiled Ethereum
 // contracts specified in EIP-2537. These are exported for testing purposes.
 var PrecompiledContractsBLS = map[common.Address]PrecompiledContract{
@@ -146,25 +131,16 @@ func init() {
 
 // ActivePrecompiles returns the precompiles enabled with the current configuration.
 func ActivePrecompiles(rules params.Rules) []common.Address {
-	var addresses []common.Address
-	
 	switch {
 	case rules.IsBerlin:
-		addresses = PrecompiledAddressesBerlin
+		return PrecompiledAddressesBerlin
 	case rules.IsIstanbul:
-		addresses = PrecompiledAddressesIstanbul
+		return PrecompiledAddressesIstanbul
 	case rules.IsByzantium:
-		addresses = PrecompiledAddressesByzantium
+		return PrecompiledAddressesByzantium
 	default:
-		addresses = PrecompiledAddressesHomestead
+		return PrecompiledAddressesHomestead
 	}
-	
-	// Add post-quantum precompiles if enabled
-	if rules.IsPQTFork {
-		addresses = append(addresses, PostQuantumPrecompileAddresses()...)
-	}
-	
-	return addresses
 }
 
 // RunPrecompiledContract runs and evaluates the output of a precompiled contract.

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -51,16 +52,16 @@ type AIConfig struct {
 	ConfidenceThreshold float64    `json:"confidenceThreshold"`
 }
 
-// DefaultAIConfig returns default AI configuration for Phi-3 Mini with vLLM
+// DefaultAIConfig returns default AI configuration for TinyLlama with vLLM
 func DefaultAIConfig() *AIConfig {
 	return &AIConfig{
-		LLMEndpoint:         "http://localhost:8000/v1/completions", // vLLM OpenAI-compatible API
-		LLMModel:           "microsoft/Phi-3-mini-4k-instruct", // Phi-3 Mini 3.8B parameter model
-		LLMTimeout:         2 * time.Second, // Ultra-fast response with vLLM
-		UpdateInterval:     500 * time.Millisecond, // Very frequent updates due to vLLM speed
-		HistorySize:        100,
-		LearningRate:       0.15,
-		ConfidenceThreshold: 0.75,
+		LLMEndpoint:         "http://localhost:8000/v1/chat/completions", // vLLM OpenAI-compatible API
+		LLMModel:           "TinyLlama/TinyLlama-1.1B-Chat-v1.0", // TinyLlama 1.1B parameter model
+		LLMTimeout:         1 * time.Second, // 2x faster for high TPS optimization
+		UpdateInterval:     250 * time.Millisecond, // 2x more frequent updates for massive TPS
+		HistorySize:        200, // 2x larger history for better pattern recognition
+		LearningRate:       0.25, // Higher learning rate for rapid adaptation
+		ConfidenceThreshold: 0.65, // Lower threshold for more aggressive optimization
 	}
 }
 
@@ -98,19 +99,27 @@ type AIDecision struct {
 	PerformanceGain float64    `json:"performanceGain"`
 }
 
-// VLLMRequest represents a request to vLLM (OpenAI-compatible)
-type VLLMRequest struct {
-	Model       string  `json:"model"`
-	Prompt      string  `json:"prompt"`
-	MaxTokens   int     `json:"max_tokens"`
-	Temperature float64 `json:"temperature"`
-	Stream      bool    `json:"stream"`
+// VLLMChatRequest represents a chat request to vLLM (OpenAI-compatible)
+type VLLMChatRequest struct {
+	Model       string    `json:"model"`
+	Messages    []Message `json:"messages"`
+	MaxTokens   int       `json:"max_tokens"`
+	Temperature float64   `json:"temperature"`
+	Stream      bool      `json:"stream"`
 }
 
-// VLLMResponse represents a response from vLLM
-type VLLMResponse struct {
+// Message represents a chat message
+type Message struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+// VLLMChatResponse represents a response from vLLM chat API
+type VLLMChatResponse struct {
 	Choices []struct {
-		Text string `json:"text"`
+		Message struct {
+			Content string `json:"content"`
+		} `json:"message"`
 	} `json:"choices"`
 }
 
@@ -162,11 +171,21 @@ func (ai *AILoadBalancer) testLLMConnection() error {
 	return nil
 }
 
-// queryLLM sends a query to vLLM using OpenAI-compatible API
+// queryLLM sends a query to vLLM using OpenAI-compatible chat API
 func (ai *AILoadBalancer) queryLLM(prompt string) (string, error) {
-	request := VLLMRequest{
-		Model:       ai.llmModel,
-		Prompt:      prompt,
+	// Validate LLM endpoint before making request
+	if ai.llmEndpoint == "" || ai.llmEndpoint == "\\" || ai.llmEndpoint == "\"\"" {
+		return "", fmt.Errorf("LLM endpoint not configured or empty")
+	}
+	
+	request := VLLMChatRequest{
+		Model: ai.llmModel,
+		Messages: []Message{
+			{
+				Role:    "user",
+				Content: prompt,
+			},
+		},
 		MaxTokens:   200,
 		Temperature: 0.1,
 		Stream:      false,
@@ -199,16 +218,23 @@ func (ai *AILoadBalancer) queryLLM(prompt string) (string, error) {
 		return "", err
 	}
 	
-	var vllmResp VLLMResponse
+	var vllmResp VLLMChatResponse
 	if err := json.Unmarshal(body, &vllmResp); err != nil {
 		return "", err
 	}
 	
 	if len(vllmResp.Choices) == 0 {
-		return "", fmt.Errorf("no response choices from vLLM")
+		// Not an error - model may have nothing to say, use fallback
+		return "", nil
 	}
 	
-	return vllmResp.Choices[0].Text, nil
+	content := vllmResp.Choices[0].Message.Content
+	if content == "" {
+		// Empty response is also fine, use fallback
+		return "", nil
+	}
+	
+	return content, nil
 }
 
 // aiDecisionLoop runs the AI decision making process
@@ -248,6 +274,13 @@ func (ai *AILoadBalancer) makeAIDecision() {
 	response, err := ai.queryLLM(prompt)
 	if err != nil {
 		log.Warn("AI decision failed, using fallback", "error", err)
+		ai.fallbackDecision(metrics)
+		return
+	}
+	
+	// If response is empty, use fallback (not an error)
+	if response == "" {
+		log.Debug("AI returned empty response, using fallback")
 		ai.fallbackDecision(metrics)
 		return
 	}
@@ -297,33 +330,45 @@ func (ai *AILoadBalancer) generateAIPrompt(current PerformanceMetrics) string {
 	}
 	ai.mu.RUnlock()
 	
-	prompt := fmt.Sprintf(`You are an AI load balancer for a high-performance blockchain system with RTX 4090 GPU and 16+ CPU cores.
+	prompt := fmt.Sprintf(`You are an AI load balancer for a MASSIVE TPS blockchain system with RTX 4000 SFF Ada (20GB VRAM) and 16+ CPU cores.
+
+SYSTEM OPTIMIZATIONS APPLIED:
+- Transaction Pool: 2.5M capacity (was 6K)
+- Block Time: 50ms minimum (was 1s)
+- GPU Batch Size: 200K (was 50K)
+- GPU Workers: 50 each (was 20)
 
 CURRENT PERFORMANCE:
-- TPS: %d (target: 5,000,000)
-- CPU Utilization: %.2f%% (max: 90%%)
-- GPU Utilization: %.2f%% (max: 95%%)
-- Latency: %.1fms (target: <50ms)
-- Batch Size: %d
+- TPS: %d (NEW TARGET: 2,000,000+ sustained, 10M peak)
+- CPU Utilization: %.2f%% (max: 95%% - pushed higher)
+- GPU Utilization: %.2f%% (max: 98%% - RTX 4000 SFF Ada limits)
+- Latency: %.1fms (target: <25ms - 2x faster)
+- Batch Size: %d (optimal: 100K-200K)
 - Current Strategy: %s
-- Queue Depth: %d
+- Queue Depth: %d (capacity: 2.5M)
 
 RECENT TRENDS (last %d measurements):
 %s
 
-DECISION REQUIRED:
-Based on the current performance and trends, recommend:
-1. CPU/GPU ratio (0.0 = all CPU, 1.0 = all GPU)
-2. Processing strategy (CPU_ONLY, GPU_ONLY, HYBRID)
-3. Confidence level (0.0-1.0)
-4. Brief reasoning
+AI DECISION REQUIRED:
+With massive TPS optimizations in place, aggressively optimize for:
+1. CPU/GPU ratio (0.0 = all CPU, 1.0 = all GPU) - favor GPU heavily
+2. Processing strategy (CPU_ONLY, GPU_ONLY, HYBRID) - prefer GPU/HYBRID
+3. Confidence level (0.0-1.0) - be more aggressive with high confidence
+4. Brief reasoning focused on maximizing TPS
+
+OPTIMIZATION PRIORITIES:
+- Push GPU to 95-98%% utilization (RTX 4000 SFF Ada sweet spot)
+- Keep CPU at 90-95%% to handle overflow
+- Target 500K-2M+ TPS sustained throughput
+- Minimize latency under 25ms
 
 Respond in JSON format:
 {
-  "ratio": 0.85,
-  "strategy": "HYBRID",
-  "confidence": 0.9,
-  "reasoning": "High GPU utilization with good performance, maintain current ratio"
+  "ratio": 0.92,
+  "strategy": "GPU_ONLY",
+  "confidence": 0.95,
+  "reasoning": "GPU underutilized at X%%, can push to 95%% for massive TPS gain"
 }`,
 		current.TotalTPS,
 		current.CPUUtilization*100,
@@ -361,7 +406,8 @@ func (ai *AILoadBalancer) parseAIResponse(response string) (LoadPrediction, erro
 	end := bytes.LastIndex([]byte(response), []byte("}"))
 	
 	if start == -1 || end == -1 || start >= end {
-		return LoadPrediction{}, fmt.Errorf("no valid JSON found in response")
+		// No JSON found, try to extract values from text
+		return ai.parseTextResponse(response)
 	}
 	
 	jsonStr := response[start : end+1]
@@ -374,7 +420,8 @@ func (ai *AILoadBalancer) parseAIResponse(response string) (LoadPrediction, erro
 	}
 	
 	if err := json.Unmarshal([]byte(jsonStr), &aiResponse); err != nil {
-		return LoadPrediction{}, fmt.Errorf("failed to parse JSON: %w", err)
+		// JSON parsing failed, try text parsing
+		return ai.parseTextResponse(response)
 	}
 	
 	// Validate response
@@ -392,6 +439,57 @@ func (ai *AILoadBalancer) parseAIResponse(response string) (LoadPrediction, erro
 		RecommendedStrategy: aiResponse.Strategy,
 		Confidence:        aiResponse.Confidence,
 		Reasoning:         aiResponse.Reasoning,
+	}, nil
+}
+
+// parseTextResponse extracts values from plain text AI response
+func (ai *AILoadBalancer) parseTextResponse(response string) (LoadPrediction, error) {
+	// Default values
+	ratio := 0.85
+	strategy := "HYBRID"
+	confidence := 0.7
+	reasoning := "Text-based AI response parsed"
+	
+	// Try to extract numeric values from text
+	responseUpper := strings.ToUpper(response)
+	
+	// Look for ratio/percentage values
+	if strings.Contains(responseUpper, "GPU") {
+		if strings.Contains(responseUpper, "95%") || strings.Contains(responseUpper, "0.95") {
+			ratio = 0.95
+		} else if strings.Contains(responseUpper, "90%") || strings.Contains(responseUpper, "0.90") {
+			ratio = 0.90
+		} else if strings.Contains(responseUpper, "80%") || strings.Contains(responseUpper, "0.80") {
+			ratio = 0.80
+		}
+	}
+	
+	// Look for strategy keywords
+	if strings.Contains(responseUpper, "GPU_ONLY") || strings.Contains(responseUpper, "GPU ONLY") {
+		strategy = "GPU_ONLY"
+		confidence = 0.8
+	} else if strings.Contains(responseUpper, "CPU_ONLY") || strings.Contains(responseUpper, "CPU ONLY") {
+		strategy = "CPU_ONLY"
+		confidence = 0.8
+	} else if strings.Contains(responseUpper, "HYBRID") {
+		strategy = "HYBRID"
+		confidence = 0.75
+	}
+	
+	// Extract reasoning from response (first 100 chars)
+	if len(response) > 10 {
+		reasoning = response
+		if len(reasoning) > 100 {
+			reasoning = reasoning[:100] + "..."
+		}
+	}
+	
+	return LoadPrediction{
+		Timestamp:         time.Now(),
+		RecommendedRatio:  ratio,
+		RecommendedStrategy: strategy,
+		Confidence:        confidence,
+		Reasoning:         reasoning,
 	}, nil
 }
 

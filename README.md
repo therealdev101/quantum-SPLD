@@ -1,337 +1,212 @@
-# Splendor Blockchain V4 - Mainnet
+# Splendor Blockchain V4 — Unified Quantum + x402 + GPU High‑Performance EVM
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Go Version](https://img.shields.io/badge/Go-1.15+-blue.svg)](https://golang.org)
-[![Node Version](https://img.shields.io/badge/Node-16+-green.svg)](https://nodejs.org)
+[![License: SBSAL](https://img.shields.io/badge/License-SBSAL-red.svg)](LICENSE)
+[![Go Version](https://img.shields.io/badge/Go-1.22+-blue.svg)](https://golang.org)
 [![Network Status](https://img.shields.io/badge/Mainnet-Live-brightgreen.svg)](https://mainnet-rpc.splendor.org/)
+[![AI Powered](https://img.shields.io/badge/AI-TinyLlama_1.1B-purple.svg)](docs/GETTING_STARTED.md)
+[![GPU Accelerated](https://img.shields.io/badge/GPU-RTX_4000_SFF_Ada-orange.svg)](docs/GETTING_STARTED.md)
 
-A high-performance, enterprise-grade blockchain with Congress consensus mechanism, designed for scalability, security, and exceptional developer experience.
+A unified, production‑grade EVM blockchain that combines:
+- Quantum‑resistant signatures (ML‑DSA/Dilithium via liboqs)
+- Native x402 HTTP‑native micropayments protocol
+- CUDA‑accelerated hybrid CPU/GPU pipeline capable of verified multi‑million TPS
 
-## 🌟 Overview
+Refer to the consolidated technical spec:
+- docs/SPLENDOR_UNIFIED_QUANTUM_X402_GPU_TPS_CONSENSUS.md
 
-Splendor Blockchain V4 is a production-ready mainnet that combines the best of Ethereum compatibility with innovative consensus mechanisms. Built for real-world applications, it offers sub-second block times, low transaction fees, and enterprise-grade security.
+## Overview
 
-### Key Features
+Splendor Blockchain V4 integrates post‑quantum cryptography, native x402 micropayments, and GPU‑accelerated execution in a single client. The system has verified performance peaks of 2.35M TPS on the documented target hardware, with complete on‑chain proof artifacts and screenshots included in this repository.
 
-- **🤖 AI-Powered Load Balancing**: Real-time optimization with vLLM + Phi-3 Mini (3.8B)
-- **⚡ GPU Acceleration**: NVIDIA RTX 4000 SFF Ada with 1.2M+ TPS capability
-- **🧠 Hybrid Processing**: Intelligent CPU/GPU workload distribution
-- **🔒 Enterprise Security**: Congress consensus with Byzantine fault tolerance
-- **💰 Ultra-Low Fees**: Minimal transaction costs with 70W power efficiency
-- **🔗 Ethereum Compatible**: Full EVM compatibility with existing tools
-- **🏛️ Decentralized Governance**: Community-driven validator system
-- **🛡️ Production Ready**: Comprehensive monitoring and AI optimization
+### Key Capabilities
 
-## 🚀 Quick Start
+- Quantum Resistance (PQ/ML‑DSA/FIPS‑204):
+  - ML‑DSA‑44/65/87 (mapped to liboqs Dilithium2/3/5) with CGO integration
+  - Dynamic sizing via runtime queries; precompile and consensus hooks
+- Native x402 Payments:
+  - HTTP‑native 402 semantics (x402_supported/x402_verify/x402_settle)
+  - Ready‑to‑use middleware (Core‑Blockchain/x402‑middleware)
+- GPU Acceleration (CUDA/OpenCL):
+  - Hybrid CPU/GPU pipeline with thresholds, worker parallelism, and pipelining
+  - GPU RPC namespace for runtime introspection and health reporting
+- AI‑Powered Optimization (TinyLlama 1.1B via vLLM):
+  - Optional local AI service for load balancing and throughput tuning
+- Full EVM Compatibility:
+  - Operates with standard Ethereum tooling and client libraries
 
-### Network Information
+## Performance & Evidence
 
-| Parameter | Value |
-|-----------|-------|
-| **Network Name** | Splendor Mainnet RPC |
-| **RPC URL** | https://mainnet-rpc.splendor.org/ |
-| **Chain ID** | 2691 |
-| **Currency Symbol** | SPLD |
-| **Block Explorer** | https://explorer.splendor.org/ |
-| **Block Time** | 1 second |
+- Verified peak: 2.35M TPS  
+- Sustained: 824K+ TPS  
+- Block time: ~1 second
 
-### Connect to Mainnet
+Artifacts in repository:
+- Screenshots (images/):
+  - 2.35mTPS.jpeg (peak)
+  - 824kTPS.jpeg, 400kTPS.jpeg, 250kTPS.jpeg, 200kTPS.jpeg, 100kTPS.jpeg, tpsreport1.jpeg
+- On‑chain proofs (proofs/):
+  - Headers/ (multiple heights, including 20980–21019)
+  - Full Blocks/block-21018.json
+  - dump-specific-blocks.sh (script to re‑extract/verify)
 
-#### MetaMask Setup
-1. Open MetaMask and click the network dropdown
-2. Select "Add Network" → "Add a network manually"
-3. Enter the network details above
-4. Save and switch to Splendor RPC
+## Unified Architecture (Quantum + x402 + GPU)
 
-#### Programmatic Access
-```javascript
-const { ethers } = require('ethers');
+See the full spec document (highly recommended):
+- docs/SPLENDOR_UNIFIED_QUANTUM_X402_GPU_TPS_CONSENSUS.md
 
-// Connect to Splendor mainnet
-const provider = new ethers.JsonRpcProvider('https://mainnet-rpc.splendor.org/');
+Highlights:
+- PQ/ML‑DSA:
+  - crypto/mldsa (CGO: mldsa_cgo.go, common: mldsa_common.go, fallback: mldsa.go)
+  - Tests adapted to runtime sizes (GetMLDSALengths), portable across liboqs builds
+- x402 Native:
+  - JSON‑RPC methods: x402_supported, x402_verify, x402_settle
+  - Middleware for Express/Fastify under Core-Blockchain/x402-middleware
+- GPU:
+  - CUDA kernels via Makefile.cuda; linked into geth
+  - GPU RPC namespace enabled at runtime for stats and telemetry
 
-// Verify connection
-const network = await provider.getNetwork();
-console.log('Connected to:', network.name, 'Chain ID:', network.chainId);
-```
+## Quick Start (Automated)
 
-### Verify Connection
+The following scripts integrate GPU and PQ build/run in sync.
 
+1) One‑time setup (root)
 ```bash
-# Clone and test
-git clone https://github.com/Splendor-Protocol/splendor-blockchain-v4.git
-cd splendor-blockchain-v4
+sudo bash Core-Blockchain/node-setup.sh --rpc --validator 0 --nopk
+```
+What it does:
+- Installs/updates NVIDIA drivers, CUDA (runfile if needed), OpenCL
+- Builds liboqs (ML‑DSA) and compiles geth with CUDA + PQ linkage
+- Writes .env with GPU defaults (ENABLE_GPU=true)
+- Optionally installs vLLM/TinyLlama for AI load balancing
+- Adds x402 configuration and test utilities
+
+2) Start node(s)
+```bash
+cd Core-Blockchain
+./node-start.sh --rpc
+```
+What it does:
+- Exports CUDA env if ENABLE_GPU=true
+- Starts RPC node(s) in tmux with:
+  ```
+  --http.api db,eth,net,web3,personal,txpool,miner,debug,x402,gpu
+  ```
+- Starts sync-helper and prints status
+
+3) Live verification (port 80)
+- x402 API:
+```bash
+curl -s -H "Content-Type: application/json" \
+  --data '{"jsonrpc":"2.0","method":"x402_supported","params":[],"id":1}' \
+  http://127.0.0.1:80
+```
+- GPU stats:
+```bash
+curl -s -H "Content-Type: application/json" \
+  --data '{"jsonrpc":"2.0","method":"gpu_getGPUStats","params":[],"id":2}' \
+  http://127.0.0.1:80
+```
+Expected GPU results include: type=CUDA, deviceCount≥1, available=true, miner.gpuEnabled=true.
+
+## Technical Architecture
+
+### Quantum Resistance (ML‑DSA/FIPS‑204)
+- liboqs v0.8.0 built via Makefile.pq (CMake/Ninja)
+- CGO bindings (crypto/mldsa/mldsa_cgo.go) map ML‑DSA‑44/65/87 to Dilithium2/3/5
+- Precompile path validates ML‑DSA parameters and verifies signatures
+- Consensus hooks include ML‑DSA awareness where applicable
+
+### Native x402 Micropayments
+- JSON‑RPC:
+  - x402_supported: list of supported schemes/networks
+  - x402_verify: validates payment
+  - x402_settle: executes payment
+- Middleware (x402-middleware):
+  - Easily add payments to HTTP endpoints (Express/Fastify)
+  - Example + test harness included
+
+### GPU Hybrid Processing
+- CUDA kernels compiled with Makefile.cuda (arch auto‑detected in setup)
+- Runtime GPU initialization and hybrid scheduler
+- Workers and thresholds configurable via .env:
+  - GPU_THRESHOLD, GPU_*_WORKERS, GPU_MAX_BATCH_SIZE, THROUGHPUT_TARGET
+- GPU RPC namespace supports health/config/TPS introspection
+
+## Target Hardware Profile
+
+- GPU: NVIDIA RTX 4000 SFF Ada (20GB VRAM)
+- CPU: 16+ cores (32+ threads) @ 3.0+ GHz
+- RAM: 64GB+
+- Storage: NVMe SSD (2TB+, ~7GB/s)
+- Network: Gigabit+
+
+For 2.35M TPS envelope:
+- Ensure GPU drivers are active (nvidia-smi shows device)
+- CUDA toolkit available (nvcc, LD_LIBRARY_PATH)
+- Disable dev flags in production (no vmdebug/pprof)
+- Scale client connections; use persistent RPC sessions
+
+## Developer Notes
+
+- PQ tests:
+```bash
+cd Core-Blockchain/node_src
+make -f Makefile.pq pq-test   # mldsa package tests (PASS)
+```
+- Middleware (x402):
+```bash
+cd Core-Blockchain/x402-middleware
 npm install
-npm run verify
+# See README in middleware and root x402 test scripts
 ```
 
-## 📚 Documentation
+## Documentation Index
 
-**📖 [Complete Documentation Hub](docs/README.md)** - Your one-stop resource for all Splendor documentation
+- Unified Architecture (this repo’s authoritative spec)
+  - docs/SPLENDOR_UNIFIED_QUANTUM_X402_GPU_TPS_CONSENSUS.md
+- Getting Started
+  - docs/GETTING_STARTED.md
+- Validator Guide
+  - docs/VALIDATOR_GUIDE.md
+- API Reference
+  - docs/API_REFERENCE.md
+- Smart Contracts
+  - docs/SMART_CONTRACTS.md
+- Security
+  - docs/SECURITY.md
+- Additional Documents (migrated)
+  - docs/AI_SYSTEM_COMPREHENSIVE_DOCUMENTATION.md
+  - docs/CHANGELOG.md
+  - docs/CHANGES.md
+  - docs/DEPLOYMENT_GUIDE.md
+  - docs/PARALLEL_PROCESSING_SUMMARY.md
+  - docs/PROJECT_STRUCTURE.md
+  - docs/QUANTUM_RESISTANCE_DEPLOYMENT_GUIDE.md
+  - docs/QUANTUM_RESISTANCE_IMPLEMENTATION_PLAN.md
+  - docs/QUANTUM_RESISTANCE_IMPLEMENTATION_SUMMARY.md
+  - docs/SECURITY_CONCERNS_ANALYSIS.md
+  - docs/SPLENDOR_X402_REVOLUTIONARY_ANALYSIS.md
 
-### Quick Links
-- **[AI-GPU Acceleration Guide](docs/AI_GPU_ACCELERATION_GUIDE.md)** - Complete AI-powered system setup
-- **[Getting Started Guide](docs/GETTING_STARTED.md)** - Complete setup and installation
-- **[Technical Whitepaper](docs/SPLENDOR_AI_GPU_WHITEPAPER.md)** - AI-powered blockchain architecture
-- **[MetaMask Setup](docs/METAMASK_SETUP.md)** - Wallet configuration for mainnet
-- **[API Reference](docs/API_REFERENCE.md)** - Complete API documentation
-- **[Smart Contract Development](docs/SMART_CONTRACTS.md)** - Build and deploy contracts
-- **[Validator Guide](docs/VALIDATOR_GUIDE.md)** - Run validators and earn rewards
-- **[Troubleshooting](docs/TROUBLESHOOTING.md)** - Common issues and solutions
+## License
 
-### Project Resources
-- **[Contributing Guide](docs/CONTRIBUTING.md)** - How to contribute to the project
-- **[Security Policy](docs/SECURITY.md)** - Security practices and vulnerability reporting
-- **[Code of Conduct](docs/CODE_OF_CONDUCT.md)** - Community guidelines
-- **[Roadmap](docs/ROADMAP.md)** - Development roadmap and future plans
+This project is licensed under the **Splendor Blockchain Source‑Available License (SBSAL) v1.0** — see [LICENSE](LICENSE).
 
-## 🏗️ Architecture
+**Permitted:**
+- Security auditing, research, education
+- Connecting to the official Splendor network
+- Personal non‑commercial modifications
+- Contributions to the official repo
 
-### AI-Powered GPU Acceleration
-Splendor features the world's first AI-powered blockchain with real-time GPU acceleration:
-- **vLLM AI Engine**: Ultra-fast LLM serving with Phi-3 Mini (3.8B parameters)
-- **GPU Processing**: CUDA/OpenCL kernels for massive parallel computation
-- **Hybrid Intelligence**: AI-guided CPU/GPU workload distribution
-- **Real-time Optimization**: 500ms decision intervals for continuous tuning
+**Prohibited without written permission:**
+- Forks for competing networks
+- Commercial use or resale
+- Operating separate networks
+- Removing Splendor branding
 
-### Congress Consensus
-Enhanced Proof of Authority consensus called "Congress" that provides:
-- **Fast Finality**: Transactions confirmed in 1 second
-- **High Security**: Byzantine fault tolerance with validator rotation
-- **Energy Efficient**: 70W power consumption with AI optimization
-- **AI-Scalable**: Supports 1.2M+ TPS with intelligent load balancing
+Commercial inquiries: legal@splendor.org
 
-### Validator Tiers
-| Tier | Stake Required | Benefits |
-|------|----------------|----------|
-| **Bronze** | 3,947 SPLD (~$1,500) | Entry-level validation |
-| **Silver** | 39,474 SPLD (~$15,000) | Enhanced rewards |
-| **Gold** | 394,737 SPLD (~$150,000) | Premium rewards & governance |
-| **Platinum** | 3,947,368 SPLD (~$1,500,000) | Elite tier with maximum rewards |
-
-### System Contracts
-Pre-deployed contracts for network governance:
-- **Validators** (`0x...F000`): Validator management and staking
-- **Punish** (`0x...F001`): Slashing and penalty mechanisms
-- **Proposal** (`0x...F002`): Governance proposals and voting
-- **Slashing** (`0x...F007`): Misbehavior detection and penalties
-<!-- - **Params** (`0x...F004`): Network parameter management -->
-
-## 💼 Use Cases
-
-### DeFi Applications
-- **DEXs**: Build decentralized exchanges with minimal fees
-- **Lending**: Create lending protocols with fast settlements
-- **Yield Farming**: Deploy staking and farming contracts
-- **Derivatives**: Complex financial instruments with low latency
-
-### Enterprise Solutions
-- **Supply Chain**: Track goods with immutable records
-- **Identity**: Decentralized identity management
-- **Payments**: Fast, low-cost payment systems
-- **Tokenization**: Asset tokenization and management
-
-### Gaming & NFTs
-- **GameFi**: Blockchain games with fast transactions
-- **NFT Marketplaces**: Low-fee NFT trading platforms
-- **Metaverse**: Virtual world economies
-- **Digital Collectibles**: Unique digital asset creation
-
-## 🛠️ Development Tools
-
-### Supported Frameworks
-- **Hardhat**: Full compatibility with existing Hardhat projects
-- **Truffle**: Deploy and test with Truffle suite
-- **Remix**: Browser-based development environment
-- **Foundry**: Fast, portable, and modular toolkit
-
-### Libraries & SDKs
-- **JavaScript/TypeScript**: ethers.js, web3.js
-- **Python**: web3.py
-- **Go**: go-ethereum client
-- **Java**: web3j
-- **Rust**: ethers-rs
-
-### Example: Deploy a Smart Contract
-
-```javascript
-// hardhat.config.js
-module.exports = {
-  networks: {
-    splendor: {
-      url: "https://mainnet-rpc.splendor.org/",
-      chainId: 2691,
-      accounts: [process.env.PRIVATE_KEY]
-    }
-  }
-};
-
-// Deploy
-npx hardhat run scripts/deploy.js --network splendor
-```
-
-## 🔐 Security
-
-### Audits & Testing
-- **Smart Contract Audits**: All system contracts professionally audited
-- **Penetration Testing**: Regular security assessments
-- **Bug Bounty Program**: Community-driven security testing
-- **Formal Verification**: Mathematical proofs of critical components
-
-### Best Practices
-- **Multi-signature**: Critical operations require multiple signatures
-- **Time Locks**: Delayed execution for sensitive changes
-- **Upgrade Patterns**: Secure contract upgrade mechanisms
-- **Access Controls**: Role-based permission systems
-
-## 🌐 Ecosystem
-
-### Infrastructure
-- **RPC Providers**: Multiple redundant RPC endpoints
-- **Block Explorers**: Real-time blockchain exploration
-- **Indexing Services**: Fast data querying and analytics
-- **Monitoring Tools**: Network health and performance metrics
-
-### DApps & Protocols
-- **DEXs**: Decentralized exchanges for token trading
-- **Lending Protocols**: Borrow and lend digital assets
-- **NFT Marketplaces**: Create, buy, and sell NFTs
-- **Gaming Platforms**: Blockchain-based games and metaverses
-
-### Developer Resources
-- **Documentation**: Comprehensive guides and tutorials
-- **SDKs**: Development kits for multiple languages
-- **Templates**: Starter projects and boilerplates
-- **Community**: Active developer community and support
-
-## 📊 Network Statistics
-
-### Performance Metrics
-- **Block Time**: 1 second fixed
-- **TPS**: 1.2M+ with AI optimization (RTX 4000 SFF Ada)
-- **AI Decisions**: 2 per second (500ms intervals)
-- **GPU Efficiency**: 17,143 TPS/Watt (70W power consumption)
-- **Latency**: <50ms average processing time
-- **Uptime**: 99.9%+ network availability
-
-#### Current System Performance
-```javascript
-Hardware: NVIDIA RTX 4000 SFF Ada (20GB VRAM, 70W)
-Base Performance: 800K TPS
-AI-Optimized: 1.2M TPS (1.5x improvement)
-Power Efficiency: 17,143 TPS/Watt
-Memory Usage: 18GB blockchain + 2GB system
-```
-
-#### Transaction Costs (SPLD = $0.38)
-```javascript
-Simple Transfer: 21,000 gas × 1 gwei = 0.000021 SPLD = $0.000008
-Token Transfer: 65,000 gas × 1 gwei = 0.000065 SPLD = $0.0000247  
-Contract Creation: 1,886,885 gas × 1 gwei = 0.001887 SPLD = $0.000717
-```
-
-### Economic Model
-- **Gas Fees**: Starting at 1 gwei (0.000000001 SPLD)
-- **Validator Rewards**: 60% of gas fees
-- **Staker Rewards**: 30% of gas fees
-- **Development Fund**: 10% of gas fees
-
-## 🤝 Community
-
-### Get Involved
-- **Telegram**: [Splendor Labs](https://t.me/SplendorLabs) - Join our developer community
-- **Twitter**: [@SplendorLabs](https://x.com/splendorlabs) - Follow for updates and announcements
-- **GitHub**: Contribute to the codebase
-- **Medium**: Read technical articles and updates
-
-### Governance
-- **Proposals**: Submit improvement proposals
-- **Voting**: Participate in network governance
-- **Validator Program**: Become a network validator
-- **Ambassador Program**: Represent Splendor globally
-
-## 🚀 Getting Started
-
-### For Users
-1. **Set up MetaMask**: Follow our [MetaMask guide](docs/METAMASK_SETUP.md)
-2. **Get SPLD tokens**: Purchase from supported exchanges
-3. **Explore DApps**: Try decentralized applications
-4. **Join Community**: Connect with other users
-
-### For Developers
-1. **Read Documentation**: Start with [Getting Started](docs/GETTING_STARTED.md)
-2. **Set up Environment**: Install required tools
-3. **Deploy Contracts**: Follow [Smart Contract guide](docs/SMART_CONTRACTS.md)
-4. **Build DApps**: Create decentralized applications
-
-### For Validators
-1. **Review Requirements**: Check [Validator Guide](docs/VALIDATOR_GUIDE.md)
-2. **Acquire Stake**: Get minimum 3,947 SPLD
-3. **Set up Infrastructure**: Deploy validator node
-4. **Start Validating**: Earn rewards and secure the network
-
-## 📈 Roadmap
-
-### Q1 2025
-- ✅ Mainnet Launch
-- ✅ Core Infrastructure Deployment
-- ✅ Initial Validator Set
-- ✅ Basic DApp Ecosystem
-
-### Q2 2025
-- 🔄 Enhanced Developer Tools
-- 🔄 Mobile Wallet Integration
-- 🔄 Cross-chain Bridges
-- 🔄 Institutional Partnerships
-
-### Q3 2025
-- 📋 Layer 2 Solutions
-- 📋 Advanced Governance Features
-- 📋 Enterprise Integrations
-- 📋 Global Expansion
-
-### Q4 2025
-- 📋 Interoperability Protocols
-- 📋 Advanced Privacy Features
-- 📋 Quantum-Resistant Security
-- 📋 Ecosystem Maturation
-
-## 🆘 Support
-
-### Documentation
-- [Getting Started](docs/GETTING_STARTED.md)
-- [API Reference](docs/API_REFERENCE.md)
-- [Troubleshooting](docs/TROUBLESHOOTING.md)
-
-### Community Support
-- **Telegram**: [Splendor Labs](https://t.me/SplendorLabs) - Real-time community help
-- **Twitter**: [@SplendorLabs](https://x.com/splendorlabs) - Updates and announcements
-- **GitHub Issues**: Report bugs and request features
-- **Stack Overflow**: Tag questions with `splendor-blockchain`
-
-### Professional Support
-- **Enterprise Support**: Dedicated support for businesses
-- **Consulting Services**: Custom development and integration
-- **Training Programs**: Developer education and certification
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## ⚠️ Disclaimer
-
-Splendor Blockchain V4 is production software, but blockchain technology involves inherent risks. Users should:
-- Understand the technology before using
-- Never invest more than they can afford to lose
-- Keep private keys secure and backed up
-- Verify all transactions before confirming
-- Stay informed about network updates and changes
+© 2025 Splendor Labs S.A. All rights reserved.
 
 ---
 
-**Built with ❤️ by the Splendor Team**
-
-*Empowering the decentralized future, one block at a time.*
-
----
-*Last updated: January 11, 2025*
+Built with AI by the Splendor Team — advancing blockchain through AI, PQ, and GPU acceleration.

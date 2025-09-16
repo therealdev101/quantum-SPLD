@@ -183,10 +183,10 @@ var DefaultTxPoolConfig = TxPoolConfig{
 	PriceLimit: 1,
 	PriceBump:  10,
 
-	AccountSlots: 1000,        // 62x increase for high-volume accounts
-	GlobalSlots:  2000000,     // 390x increase - 2M pending transactions
-	AccountQueue: 5000,        // 78x increase for queued per account
-	GlobalQueue:  500000,      // 488x increase - 500K queued transactions
+	AccountSlots: 1000000,     // 1M per account - single account can send 1M transactions
+	GlobalSlots:  10000000,    // 10M pending transactions - supports 10 accounts × 1M each
+	AccountQueue: 500000,      // 500K queued per account - massive queue capacity
+	GlobalQueue:  5000000,     // 5M queued transactions - total queue capacity
 
 	Lifetime: 3 * time.Hour,
 
@@ -383,6 +383,7 @@ func (pool *TxPool) loop() {
 		// Handle ChainHeadEvent
 		case ev := <-pool.chainHeadCh:
 			if ev.Block != nil {
+				log.Info("TxPool received ChainHeadEvent", "block", ev.Block.NumberU64(), "hash", ev.Block.Hash().Hex()[:8], "txs", len(ev.Block.Transactions()))
 				pool.requestReset(head.Header(), ev.Block.Header())
 				head = ev.Block
 				pool.jamIndexer.UpdateHeader(head.Header())
@@ -1267,10 +1268,45 @@ func (pool *TxPool) runReorg(done chan struct{}, reset *txpoolResetRequest, dirt
 // reset retrieves the current state of the blockchain and ensures the content
 // of the transaction pool is valid with regard to the chain state.
 func (pool *TxPool) reset(oldHead, newHead *types.Header) {
+	log.Info("TxPool reset called", 
+		"oldHead", func() string { if oldHead != nil { return oldHead.Hash().Hex()[:8] }; return "nil" }(),
+		"newHead", newHead.Hash().Hex()[:8],
+		"oldNum", func() uint64 { if oldHead != nil { return oldHead.Number.Uint64() }; return 0 }(),
+		"newNum", newHead.Number.Uint64())
+
 	// If we're reorging an old state, reinject all dropped transactions
 	var reinject types.Transactions
 
-	if oldHead != nil && oldHead.Hash() != newHead.ParentHash {
+	// Handle normal block progression (new block mined)
+	if oldHead != nil && oldHead.Hash() == newHead.ParentHash {
+		// This is a normal block progression, remove transactions included in the new block
+		newBlock := pool.chain.GetBlock(newHead.Hash(), newHead.Number.Uint64())
+		if newBlock != nil {
+			includedTxs := newBlock.Transactions()
+			log.Info("Normal block progression - removing included transactions from pool", 
+				"count", len(includedTxs), 
+				"block", newHead.Number.Uint64(),
+				"poolPending", pool.all.Count())
+			
+			removedCount := 0
+			// Remove all transactions that were included in the new block
+			for i, tx := range includedTxs {
+				hash := tx.Hash()
+				if pool.all.Get(hash) != nil {
+					log.Info("Removing included transaction from pool", "hash", hash.Hex()[:8])
+					pool.removeTx(hash, false)
+					removedCount++
+				} else {
+					if i < 5 { // Only log first 5 to avoid spam
+						log.Warn("Transaction in block not found in pool", "hash", hash.Hex()[:8], "nonce", tx.Nonce())
+					}
+				}
+			}
+			log.Info("Completed removing transactions from pool", 
+				"removed", removedCount, 
+				"poolPendingAfter", pool.all.Count())
+		}
+	} else if oldHead != nil && oldHead.Hash() != newHead.ParentHash {
 		// If the reorg is too deep, avoid doing it (will happen during fast sync)
 		oldNum := oldHead.Number.Uint64()
 		newNum := newHead.Number.Uint64()

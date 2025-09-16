@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/rlp"
 	"math"
@@ -234,6 +235,70 @@ func (c *Congress) executeEvmCallProposal(chain consensus.ChainHeaderReader, hea
 // ApplySysTx applies a system-transaction using a given evm,
 // the main purpose of this method is for tracing a system-transaction.
 func (c *Congress) ApplySysTx(evm *vm.EVM, state *state.StateDB, txIndex int, sender common.Address, tx *types.Transaction) (ret []byte, vmerr error, err error) {
+	// Handle x402 system settlement typed transaction
+	if tx.Type() == types.X402TxType {
+		// Define payload format expected in X402Tx.Input (RLP-encoded)
+		type x402Payload struct {
+			From        common.Address
+			To          common.Address
+			Value       *big.Int
+			ValidAfter  uint64
+			ValidBefore uint64
+			Nonce       common.Hash
+			Signature   []byte
+		}
+		var p x402Payload
+		if err = rlp.DecodeBytes(tx.Data(), &p); err != nil {
+			vmerr = fmt.Errorf("x402: invalid payload: %w", err)
+			return
+		}
+		if p.Value == nil {
+			p.Value = new(big.Int)
+		}
+		// Verify signature (EIP-191 + chainId domain separation)
+		chainID := c.chainConfig.ChainID.Uint64()
+		msg := fmt.Sprintf("x402-payment:%s:%s:%s:%d:%d:%s:%d",
+			p.From.Hex(), p.To.Hex(), p.Value.String(), p.ValidAfter, p.ValidBefore, p.Nonce.Hex(), chainID)
+		hash := accounts.TextHash([]byte(msg))
+		sig := make([]byte, len(p.Signature))
+		copy(sig, p.Signature)
+		if len(sig) != 65 {
+			vmerr = errors.New("x402: invalid signature length")
+			return
+		}
+		if sig[64] >= 27 {
+			sig[64] -= 27
+		}
+		pub, e := crypto.SigToPub(hash, sig)
+		if e != nil {
+			vmerr = fmt.Errorf("x402: signature recover failed: %w", e)
+			return
+		}
+		rec := crypto.PubkeyToAddress(*pub)
+		if rec != p.From {
+			vmerr = errors.New("x402: signature does not match from")
+			return
+		}
+		// Balance check
+		if state.GetBalance(p.From).Cmp(p.Value) < 0 {
+			vmerr = errors.New("x402: insufficient balance")
+			return
+		}
+		// Durable anti-replay: mark (from, nonce)
+		x402Registry := common.HexToAddress("0x0000000000000000000000000000000000000402")
+		slotKey := crypto.Keccak256Hash(append(p.From.Bytes(), p.Nonce.Bytes()...))
+		if state.GetState(x402Registry, slotKey).Big().Sign() != 0 {
+			vmerr = errors.New("x402: nonce already used")
+			return
+		}
+		// Zero-fee settlement: move exact amount
+		state.SubBalance(p.From, p.Value)
+		state.AddBalance(p.To, p.Value)
+		state.SetState(x402Registry, slotKey, common.BigToHash(common.Big1))
+		// No logs/emits here; explorers can index by typed tx hash
+		return nil, nil, nil
+	}
+
 	var prop = &Proposal{}
 	if err = rlp.DecodeBytes(tx.Data(), prop); err != nil {
 		return

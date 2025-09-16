@@ -277,6 +277,9 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	gppCfg := checkPricePredictionConfig(&gpoParams)
 	eth.APIBackend.gpp = gasprice.NewPrediction(*gppCfg, eth.APIBackend, eth.txPool)
 
+	// Initialize x402 validator rewards system
+	InitX402ValidatorRewards(eth)
+
 	// Check for unclean shutdown
 	if uncleanShutdowns, discards, err := rawdb.PushUncleanShutdownMarker(chainDb); err != nil {
 		log.Error("Could not update unclean-shutdown-marker list", "error", err)
@@ -402,6 +405,11 @@ func (s *Ethereum) APIs() []rpc.API {
 			Namespace: "net",
 			Version:   "1.0",
 			Service:   s.netRPCService,
+			Public:    true,
+		}, {
+			Namespace: "x402",
+			Version:   "1.0",
+			Service:   NewX402API(s),
 			Public:    true,
 		},
 	}...)

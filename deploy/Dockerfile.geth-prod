@@ -1,0 +1,38 @@
+# syntax=docker/dockerfile:1.6
+
+# Multi-stage build for Splendor (geth fork) production binary with CGO disabled (CPU-only)
+FROM golang:1.22-bullseye AS builder
+
+WORKDIR /src
+# Copy repository content
+COPY . .
+
+# Build geth binary from Core-Blockchain/node_src
+# - CGO disabled for simpler prod image
+# - Use the project's build script (build/ci.go) via make target
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    bash -lc 'cd Core-Blockchain/node_src && CGO_ENABLED=0 make geth && ls -l build/bin/geth'
+
+# Final minimal runtime image
+FROM debian:bookworm-slim
+
+# Add a non-root user
+RUN useradd -m -u 10001 splendor && mkdir -p /data && chown -R splendor:splendor /data
+
+# Copy built binary
+COPY --from=builder /src/Core-Blockchain/node_src/build/bin/geth /usr/local/bin/geth
+RUN chmod +x /usr/local/bin/geth
+
+# Set working directory and user
+WORKDIR /data
+USER splendor
+
+# Environment toggles (override via docker-compose or env)
+# - X402_STRICT_VERIFY=1 enables strict signature verification (production)
+ENV X402_STRICT_VERIFY=1
+# Optional: set your treasury address if you later enable fees
+# ENV X402_TREASURY_ADDRESS=0x0000000000000000000000000000000000000000
+
+# Default command prints help; override CMD in docker-compose
+CMD ["/usr/local/bin/geth", "--help"]

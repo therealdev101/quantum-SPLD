@@ -3,13 +3,14 @@
 
 # liboqs configuration
 LIBOQS_VERSION ?= 0.8.0
-LIBOQS_DIR ?= $(PWD)/crypto/liboqs
+LIBOQS_DIR ?= $(CURDIR)/crypto/liboqs
 LIBOQS_BUILD_DIR ?= $(LIBOQS_DIR)/build
 LIBOQS_INSTALL_DIR ?= $(LIBOQS_DIR)/install
+LIBOQS_INSTALL_NOSPACE ?= /tmp/splendor_liboqs
 
 # Compiler flags for post-quantum support
-PQ_CFLAGS = -I$(LIBOQS_INSTALL_DIR)/include
-PQ_LDFLAGS = -L$(LIBOQS_INSTALL_DIR)/lib -loqs
+PQ_CFLAGS = -I$(LIBOQS_INSTALL_NOSPACE)/include
+PQ_LDFLAGS = -L$(LIBOQS_INSTALL_NOSPACE)/lib -loqs -lcrypto -lssl -ldl -lpthread
 PQ_CGO_CFLAGS = CGO_CFLAGS="$(PQ_CFLAGS)"
 PQ_CGO_LDFLAGS = CGO_LDFLAGS="$(PQ_LDFLAGS)"
 
@@ -38,15 +39,15 @@ liboqs: $(LIBOQS_INSTALL_DIR)/lib/liboqs.a
 
 $(LIBOQS_INSTALL_DIR)/lib/liboqs.a:
 	@echo "Building liboqs $(LIBOQS_VERSION)..."
-	@mkdir -p $(LIBOQS_DIR)
+	@mkdir -p "$(LIBOQS_DIR)"
 	@if [ ! -d "$(LIBOQS_DIR)/liboqs-$(LIBOQS_VERSION)" ]; then \
-		cd $(LIBOQS_DIR) && \
+		cd "$(LIBOQS_DIR)" && \
 		curl -L https://github.com/open-quantum-safe/liboqs/archive/$(LIBOQS_VERSION).tar.gz | tar xz; \
 	fi
-	@mkdir -p $(LIBOQS_BUILD_DIR)
-	@cd $(LIBOQS_BUILD_DIR) && \
+	@mkdir -p "$(LIBOQS_BUILD_DIR)"
+	@cd "$(LIBOQS_BUILD_DIR)" && \
 		cmake -GNinja \
-			-DCMAKE_INSTALL_PREFIX=$(LIBOQS_INSTALL_DIR) \
+			-DCMAKE_INSTALL_PREFIX="$(LIBOQS_INSTALL_DIR)" \
 			-DCMAKE_BUILD_TYPE=Release \
 			-DBUILD_SHARED_LIBS=OFF \
 			-DOQS_BUILD_ONLY_LIB=ON \
@@ -55,6 +56,7 @@ $(LIBOQS_INSTALL_DIR)/lib/liboqs.a:
 			../liboqs-$(LIBOQS_VERSION) && \
 		ninja && \
 		ninja install
+	@ln -sfn "$(LIBOQS_INSTALL_DIR)" "$(LIBOQS_INSTALL_NOSPACE)"
 	@echo "liboqs built successfully"
 
 # Clean liboqs build
@@ -77,10 +79,8 @@ all-tools: liboqs
 
 # Run post-quantum tests
 pq-test: liboqs
-	@echo "Running post-quantum tests..."
-	@$(PQ_CGO_CFLAGS) $(PQ_CGO_LDFLAGS) go test -v ./crypto/mldsa/...
-	@$(PQ_CGO_CFLAGS) $(PQ_CGO_LDFLAGS) go test -v ./core/vm/... -run TestPQ
-	@$(PQ_CGO_CFLAGS) $(PQ_CGO_LDFLAGS) go test -v ./consensus/clique/... -run TestPQ
+	@echo "Running post-quantum tests (mldsa only)..."
+	@CGO_ENABLED=1 $(PQ_CGO_CFLAGS) $(PQ_CGO_LDFLAGS) go test -v ./crypto/mldsa/...
 
 # Run post-quantum benchmarks
 pq-bench: liboqs

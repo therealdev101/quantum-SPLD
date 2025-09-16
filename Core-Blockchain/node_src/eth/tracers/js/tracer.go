@@ -16,6 +16,9 @@
 // bug across the project fixed by EtherAuthority <https://etherauthority.io/>
 
 // package js is a collection of tracers written in javascript.
+ //go:build cgo
+// +build cgo
+
 package js
 
 import (

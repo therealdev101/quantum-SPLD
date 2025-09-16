@@ -1,0 +1,16 @@
+{
+  "name": "@splendor/x402-middleware",
+  "version": "1.0.0",
+  "description": "Native x402 payments middleware for Splendor Blockchain",
+  "main": "index.js",
+  "scripts": {
+    "test": "node test.js"
+  },
+  "keywords": ["x402", "payments", "splendor", "blockchain", "middleware"],
+  "author": "Splendor Blockchain",
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.6.0",
+    "crypto": "^1.0.1"
+  }
+}
