@@ -129,7 +129,7 @@ startRpc(){
           tmux send-keys -t node$node_num "export PATH=/usr/local/cuda/bin:\$PATH" Enter
           tmux send-keys -t node$node_num "export ENABLE_GPU=true" Enter
         fi
-        tmux send-keys -t node$node_num "./node_src/build/bin/geth --datadir ./chaindata/node$node_num --networkid $CHAINID --bootnodes $BOOTNODE --port 30303 --ws --ws.addr $IP --ws.origins '*' --ws.port 8545 --http --http.port 80 --rpc.txfeecap 0 --http.corsdomain '*' --nat any --http.api db,eth,net,web3,personal,txpool,miner,debug,x402,gpu --http.addr $IP --vmdebug --pprof --pprof.port 6060 --pprof.addr $IP --syncmode=full --gcmode=archive --cache=1024 --cache.database=512 --cache.trie=256 --cache.gc=256 --txpool.accountslots=1000000 --txpool.globalslots=10000000 --txpool.accountqueue=500000 --txpool.globalqueue=5000000 --maxpeers=25 --ipcpath './chaindata/node$node_num/geth.ipc' console" Enter
+        tmux send-keys -t node$node_num "./node_src/build/bin/geth --datadir ./chaindata/node$node_num --networkid $CHAINID --bootnodes $BOOTNODE --port 30303 --ws --ws.addr $IP --ws.origins '*' --ws.port 8545 --http --http.port 80 --rpc.txfeecap 0 --http.corsdomain '*' --nat any --http.api db,eth,net,web3,personal,txpool,miner,debug,x402,gpu --http.addr 0.0.0.0 --http.vhosts '*' --vmdebug --pprof --pprof.port 6060 --pprof.addr $IP --syncmode=full --gcmode=archive --cache=1024 --cache.database=512 --cache.trie=256 --cache.gc=256 --txpool.accountslots=1000000 --txpool.globalslots=10000000 --txpool.accountqueue=500000 --txpool.globalqueue=5000000 --maxpeers=25 --ipcpath './chaindata/node$node_num/geth.ipc' console" Enter
       fi
     fi
   done
