@@ -295,7 +295,7 @@ finalize(){
       VLLM_PID=$!
       echo $VLLM_PID > /tmp/vllm.pid
       
-      cd /root/splendor-blockchain-v4/Core-Blockchain/
+      cd /root/quantum-SPLD/Core-Blockchain/
       
       log_success "vLLM AI service started (PID: $VLLM_PID)"
       AI_STATUS="service_started"
@@ -357,7 +357,7 @@ finalize(){
   fi
   
   pm2 save
-  cd /root/splendor-blockchain-v4/Core-Blockchain/
+  cd /root/quantum-SPLD/Core-Blockchain/
 
   # Final status report
   echo -e "\n${GREEN}+------------------ SYSTEM STATUS -------------------+${NC}"
