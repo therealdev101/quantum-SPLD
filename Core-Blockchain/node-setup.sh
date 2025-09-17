@@ -24,6 +24,76 @@ totalNodes=$(($totalRpc + $totalValidator))
 
 #########################################################################
 
+# Hardware/software requirements
+# Minimal hard requirements (must pass): 14+ CPU cores and NVIDIA 40-series class (or >=20GB VRAM)
+REQUIRED_CPU_CORES=14
+MIN_GPU_VRAM_MB=20000
+
+# Recommended reference profile (best-effort install/validate; warnings if different)
+RECOMMENDED_GPU_NAME="RTX 4000 SFF Ada"
+RECOMMENDED_DRIVER_VERSION="575.57.08"
+RECOMMENDED_CUDA_MAJOR_MINOR="12.6"
+
+validate_strict_requirements(){
+  log_wait "Validating strict hardware/software requirements"
+
+  # CPU topology: require >= 14 cores (no specific model)
+  CPU_CORES=$(lscpu | awk -F: '/^CPU\(s\)/ {gsub(/^ +| +$/,"", $2); print $2}' | head -1)
+  if [ -z "$CPU_CORES" ]; then
+    # fallback: cores per socket * sockets
+    CoresPerSocket=$(lscpu | awk -F: '/Core\(s\) per socket/ {gsub(/^ +| +$/,"", $2); print $2}')
+    Sockets=$(lscpu | awk -F: '/Socket\(s\)/ {gsub(/^ +| +$/,"", $2); print $2}')
+    CPU_CORES=$(( CoresPerSocket * Sockets ))
+  fi
+  if [ "$CPU_CORES" -lt "$REQUIRED_CPU_CORES" ]; then
+    log_error "Insufficient CPU cores: required >= $REQUIRED_CPU_CORES, found $CPU_CORES"; return 1
+  fi
+
+  # NVIDIA GPU checks
+  if ! command -v nvidia-smi >/dev/null 2>&1; then
+    log_error "nvidia-smi not found; install NVIDIA drivers first"; return 1
+  fi
+
+  GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader | head -1)
+  GPU_MEM_MB=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | head -1)
+  DRIVER_VER=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -1)
+
+  # Hard requirement: at least RTX 40-class or >=20GB VRAM
+  if ! echo "$GPU_NAME" | grep -qiE "RTX 40|Ada|4090|4080|4070|4060|4000" && [ "$GPU_MEM_MB" -lt "$MIN_GPU_VRAM_MB" ]; then
+    log_error "GPU requirement not met: need NVIDIA RTX 40-class or >=20GB VRAM. Found '$GPU_NAME' with ${GPU_MEM_MB}MB VRAM"; return 1
+  fi
+
+  # Recommend: specific model and versions (warnings only)
+  if ! echo "$GPU_NAME" | grep -qi "$RECOMMENDED_GPU_NAME"; then
+    log_wait "Warning: Recommended GPU is '$RECOMMENDED_GPU_NAME', found '$GPU_NAME' (continuing)"
+  fi
+  if [ "$DRIVER_VER" != "$RECOMMENDED_DRIVER_VERSION" ]; then
+    log_wait "Warning: Recommended NVIDIA driver is $RECOMMENDED_DRIVER_VERSION, found $DRIVER_VER (continuing)"
+  fi
+
+  # CUDA toolkit version
+  if command -v nvcc >/dev/null 2>&1; then
+    CUDA_VER=$(nvcc --version | awk -F'release ' '/release/ {print $2}' | awk '{print $1}' | head -1)
+    if [ "${CUDA_VER%%.*}.${CUDA_VER#*.}" != "$RECOMMENDED_CUDA_MAJOR_MINOR" ]; then
+      log_wait "Warning: Recommended CUDA version is $RECOMMENDED_CUDA_MAJOR_MINOR, found $CUDA_VER (continuing)"
+    fi
+  else
+    log_error "nvcc not found; CUDA toolkit not installed"; return 1
+  fi
+
+  # cuBLAS check
+  if [ ! -f "/usr/local/cuda/lib64/libcublas.so" ] && [ ! -f "/usr/local/cuda/lib64/libcublas.so.12" ]; then
+    log_wait "Warning: cuBLAS not found in /usr/local/cuda/lib64 (expected with CUDA toolkit)"
+  fi
+
+  # cuDNN check (common locations)
+  if [ ! -f "/usr/lib/x86_64-linux-gnu/libcudnn.so" ] && [ ! -f "/usr/lib/x86_64-linux-gnu/libcudnn.so.9" ] && [ ! -f "/usr/local/cuda/lib64/libcudnn.so" ]; then
+    log_wait "Warning: cuDNN not found; install cuDNN for CUDA $RECOMMENDED_CUDA_MAJOR_MINOR for best performance"
+  fi
+
+  log_success "Strict requirements verified successfully"
+}
+
 #+-----------------------------------------------------------------------------------------------+
 #|                                                                                                                              |
 #|                                                      FUNCTIONS                                                |
@@ -544,7 +614,9 @@ task6_gpu(){
     log_success "NVIDIA GPU detected successfully"
     nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits
     # If drivers are active now, run strict validation (otherwise validation runs after reboot)
-    validate_strict_requirements || exit 1
+    if type validate_strict_requirements >/dev/null 2>&1; then
+      validate_strict_requirements || exit 1
+    fi
   else
     log_wait "GPU not detected or drivers need reboot - GPU features will activate after reboot"
   fi
@@ -1678,72 +1750,4 @@ fi
 
 # bootstraping
 finalize
-# Hardware/software requirements
-# Minimal hard requirements (must pass): 14+ CPU cores and NVIDIA 40-series class (or >=20GB VRAM)
-REQUIRED_CPU_CORES=14
-MIN_GPU_VRAM_MB=20000
-
-# Recommended reference profile (best-effort install/validate; warnings if different)
-RECOMMENDED_GPU_NAME="RTX 4000 SFF Ada"
-RECOMMENDED_DRIVER_VERSION="575.57.08"
-RECOMMENDED_CUDA_MAJOR_MINOR="12.6"
-
-validate_strict_requirements(){
-  log_wait "Validating strict hardware/software requirements"
-
-  # CPU topology: require >= 14 cores (no specific model)
-  CPU_CORES=$(lscpu | awk -F: '/^CPU\(s\)/ {gsub(/^ +| +$/,"", $2); print $2}' | head -1)
-  if [ -z "$CPU_CORES" ]; then
-    # fallback: cores per socket * sockets
-    CoresPerSocket=$(lscpu | awk -F: '/Core\(s\) per socket/ {gsub(/^ +| +$/,"", $2); print $2}')
-    Sockets=$(lscpu | awk -F: '/Socket\(s\)/ {gsub(/^ +| +$/,"", $2); print $2}')
-    CPU_CORES=$(( CoresPerSocket * Sockets ))
-  fi
-  if [ "$CPU_CORES" -lt "$REQUIRED_CPU_CORES" ]; then
-    log_error "Insufficient CPU cores: required >= $REQUIRED_CPU_CORES, found $CPU_CORES"; exit 1
-  fi
-
-  # NVIDIA GPU checks
-  if ! command -v nvidia-smi >/dev/null 2>&1; then
-    log_error "nvidia-smi not found; install NVIDIA drivers first"; exit 1
-  fi
-
-  GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader | head -1)
-  GPU_MEM_MB=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | head -1)
-  DRIVER_VER=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -1)
-
-  # Hard requirement: at least RTX 40-class or >=20GB VRAM
-  if ! echo "$GPU_NAME" | grep -qiE "RTX 40|Ada|4090|4080|4070|4060|4000" && [ "$GPU_MEM_MB" -lt "$MIN_GPU_VRAM_MB" ]; then
-    log_error "GPU requirement not met: need NVIDIA RTX 40-class or >=20GB VRAM. Found '$GPU_NAME' with ${GPU_MEM_MB}MB VRAM"; exit 1
-  fi
-
-  # Recommend: specific model and versions (warnings only)
-  if ! echo "$GPU_NAME" | grep -qi "$RECOMMENDED_GPU_NAME"; then
-    log_wait "Warning: Recommended GPU is '$RECOMMENDED_GPU_NAME', found '$GPU_NAME' (continuing)"
-  fi
-  if [ "$DRIVER_VER" != "$RECOMMENDED_DRIVER_VERSION" ]; then
-    log_wait "Warning: Recommended NVIDIA driver is $RECOMMENDED_DRIVER_VERSION, found $DRIVER_VER (continuing)"
-  fi
-
-  # CUDA toolkit version
-  if command -v nvcc >/dev/null 2>&1; then
-    CUDA_VER=$(nvcc --version | awk -F'release ' '/release/ {print $2}' | awk '{print $1}' | head -1)
-    if [ "${CUDA_VER%%.*}.${CUDA_VER#*.}" != "$RECOMMENDED_CUDA_MAJOR_MINOR" ]; then
-      log_wait "Warning: Recommended CUDA version is $RECOMMENDED_CUDA_MAJOR_MINOR, found $CUDA_VER (continuing)"
-    fi
-  else
-    log_error "nvcc not found; CUDA toolkit not installed"; exit 1
-  fi
-
-  # cuBLAS check
-  if [ ! -f "/usr/local/cuda/lib64/libcublas.so" ] && [ ! -f "/usr/local/cuda/lib64/libcublas.so.12" ]; then
-    log_wait "Warning: cuBLAS not found in /usr/local/cuda/lib64 (expected with CUDA toolkit)"
-  fi
-
-  # cuDNN check (common locations)
-  if [ ! -f "/usr/lib/x86_64-linux-gnu/libcudnn.so" ] && [ ! -f "/usr/lib/x86_64-linux-gnu/libcudnn.so.9" ] && [ ! -f "/usr/local/cuda/lib64/libcudnn.so" ]; then
-    log_wait "Warning: cuDNN not found; install cuDNN for CUDA $RECOMMENDED_CUDA_MAJOR_MINOR for best performance"
-  fi
-
-  log_success "Strict requirements verified successfully"
-}
+ 
