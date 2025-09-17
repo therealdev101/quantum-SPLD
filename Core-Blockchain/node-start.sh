@@ -116,12 +116,12 @@ startRpc(){
         echo -e "${GREEN}Starting RPC node$node_num with optimized resource limits${NC}"
         
         # Set resource limits before starting
-        ulimit -n 65536
-        export GOMAXPROCS=20
+        ulimit -n 1048576
+        export GOMAXPROCS=$(nproc)
         
         tmux new-session -d -s node$node_num
-        tmux send-keys -t node$node_num "ulimit -n 65536" Enter
-        tmux send-keys -t node$node_num "export GOMAXPROCS=20" Enter
+        tmux send-keys -t node$node_num "ulimit -n 1048576" Enter
+        tmux send-keys -t node$node_num "export GOMAXPROCS=\$(nproc)" Enter
         # Pass GPU + performance environment to tmux session
         if [ "$ENABLE_GPU" = "true" ]; then
           tmux send-keys -t node$node_num "export CUDA_PATH=/usr/local/cuda" Enter
@@ -155,12 +155,12 @@ startValidator(){
         echo -e "${GREEN}Starting Validator node$node_num with optimized resource limits${NC}"
         
         # Set resource limits before starting
-        ulimit -n 65536
-        export GOMAXPROCS=20
+        ulimit -n 1048576
+        export GOMAXPROCS=$(nproc)
         
         tmux new-session -d -s node$node_num
-        tmux send-keys -t node$node_num "ulimit -n 65536" Enter
-        tmux send-keys -t node$node_num "export GOMAXPROCS=20" Enter
+        tmux send-keys -t node$node_num "ulimit -n 1048576" Enter
+        tmux send-keys -t node$node_num "export GOMAXPROCS=\$(nproc)" Enter
         # Pass GPU + performance environment to tmux session
         if [ "$ENABLE_GPU" = "true" ]; then
           tmux send-keys -t node$node_num "export CUDA_PATH=/usr/local/cuda" Enter

@@ -1401,7 +1401,7 @@ func (w *worker) calculateOptimalBatchSize() int {
 		minBatchSize = w.batchThreshold
 	}
 	// Default max aligned with cmd/geth/main.go (env default 80K)
-	maxDefault := 80000
+    maxDefault := 200000
 	if v, err := strconv.Atoi(os.Getenv("GPU_MAX_BATCH_SIZE")); err == nil && v > 0 {
 		maxDefault = v
 	}

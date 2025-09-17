@@ -513,15 +513,15 @@ func initializeGPUAcceleration(ctx *cli.Context) {
 		MaxGPUUtilization:     getEnvFloat("MAX_GPU_UTILIZATION", 0.95),
         // Align default throughput target with miner and docs (3M TPS)
         ThroughputTarget:      getEnvUint64("THROUGHPUT_TARGET", 3000000),
-		GPUConfig: &gpu.GPUConfig{
-			PreferredGPUType: gpuType,
+        GPUConfig: &gpu.GPUConfig{
+            PreferredGPUType: gpuType,
             MaxBatchSize:     getEnvInt("GPU_MAX_BATCH_SIZE", 200000),
-			MaxMemoryUsage:   getEnvUint64("GPU_MAX_MEMORY_USAGE", 17179869184), // 16GB default
-			HashWorkers:      getEnvInt("GPU_HASH_WORKERS", 24),
-			SignatureWorkers: getEnvInt("GPU_SIGNATURE_WORKERS", 24),
-			TxWorkers:        getEnvInt("GPU_TX_WORKERS", 24),
-			EnablePipelining: getEnvBool("GPU_ENABLE_PIPELINING", true),
-		},
+            MaxMemoryUsage:   getEnvUint64("GPU_MAX_MEMORY_USAGE", 17179869184), // 16GB default
+            HashWorkers:      getEnvInt("GPU_HASH_WORKERS", 32),
+            SignatureWorkers: getEnvInt("GPU_SIGNATURE_WORKERS", 32),
+            TxWorkers:        getEnvInt("GPU_TX_WORKERS", 32),
+            EnablePipelining: getEnvBool("GPU_ENABLE_PIPELINING", true),
+        },
 	}
 
 	// Initialize global hybrid processor
