@@ -580,6 +580,56 @@ get_installed_driver_pkg(){
   dpkg -l | awk '/^ii\s+nvidia-driver-/{print $2; exit}'
 }
 
+# Helper: highest installed NVIDIA driver series as integer (e.g., 560, 575, 580)
+get_installed_driver_series(){
+  local series
+  series=$(dpkg -l | awk '/^ii\s+nvidia-driver-/{print $2}' | sed -E 's/.*nvidia-driver-([0-9]+).*/\1/' | sort -nr | head -1)
+  echo ${series:-0}
+}
+
+# Helper: ensure 580+ series driver is installed (prefer 580-open); purge conflicting series first
+ensure_driver_580_or_recommended(){
+  local target_pkg=""
+  local rec_pkg
+  rec_pkg=$(get_recommended_driver_pkg)
+  # Prefer recommended if it is 58x; otherwise prefer 580-open if available
+  if echo "$rec_pkg" | grep -qE 'nvidia-driver-58[0-9]'; then
+    target_pkg="$rec_pkg"
+  elif apt-cache policy nvidia-driver-580-open | grep -q Candidate; then
+    target_pkg="nvidia-driver-580-open"
+  elif apt-cache policy nvidia-driver-580 | grep -q Candidate; then
+    target_pkg="nvidia-driver-580"
+  else
+    # Fallback to recommended even if not 58x
+    target_pkg="$rec_pkg"
+  fi
+
+  if [ -z "$target_pkg" ]; then
+    log_error "Could not determine a suitable NVIDIA driver package"
+    return 1
+  fi
+
+  log_wait "Installing NVIDIA driver package: $target_pkg (clean purge of conflicting versions)"
+  apt update || true
+  apt --fix-broken install -y || true
+  # Purge any existing driver stacks to avoid dependency tangle
+  apt purge -y 'nvidia-driver-*' 'nvidia-dkms-*' 'nvidia-utils-*' 'libnvidia-*' || true
+  apt autoremove -y || true
+  apt clean || true
+  apt update || true
+  apt --fix-broken install -y || true
+  # Install target
+  if ! apt install -y "$target_pkg"; then
+    log_wait "Fixing dependencies and retrying $target_pkg"
+    apt --fix-broken install -y || true
+    apt install -y "$target_pkg" || true
+  fi
+  # Regenerate boot artifacts
+  update-initramfs -u || true
+  update-grub || true
+  DRIVER_SWITCHED=1
+}
+
 # Helper: switch to OS-recommended driver (purge conflicting, install recommended, regen initramfs)
 switch_to_recommended_driver(){
   local rec_pkg
@@ -641,34 +691,13 @@ install_gpu_dependencies(){
   # Clean up any broken NVIDIA deps prior to installs
   fix_broken_nvidia_stack
   
-  # Check if NVIDIA drivers are already installed
-  if nvidia-smi >/dev/null 2>&1; then
-    CURRENT_DRIVER=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader,nounits | head -1)
-    log_success "NVIDIA drivers detected (current: $CURRENT_DRIVER)"
-    # Enforce exact required driver version (unless user opted to keep existing)
-    if [ "$ENFORCE_DRIVER_VERSION" = "true" ]; then
-      if [ "$CURRENT_DRIVER" != "$RECOMMENDED_DRIVER_VERSION" ]; then
-        log_wait "Driver version mismatch (need $RECOMMENDED_DRIVER_VERSION, found $CURRENT_DRIVER). Installing required version."
-        install_driver_exact
-        DRIVER_SWITCHED=1
-      fi
-    fi
-    # Optionally align with OS-recommended package name (e.g., 580-open)
-    if [ "$ENFORCE_RECOMMENDED_DRIVER" = "true" ]; then
-      INSTALLED_PKG=$(get_installed_driver_pkg)
-      RECOMMENDED_PKG=$(get_recommended_driver_pkg)
-      if [ -n "$RECOMMENDED_PKG" ] && [ "$INSTALLED_PKG" != "$RECOMMENDED_PKG" ]; then
-        log_wait "Installed driver package ($INSTALLED_PKG) differs from OS recommendation ($RECOMMENDED_PKG)"
-        switch_to_recommended_driver
-        DRIVER_SWITCHED=1
-      else
-        log_wait "Installed driver package matches OS recommendation ($INSTALLED_PKG)"
-      fi
-    fi
+  # Decide whether to adjust drivers based on installed series (skip if already 580+)
+  INSTALLED_SERIES=$(get_installed_driver_series)
+  if [ "$INSTALLED_SERIES" -ge 580 ]; then
+    log_success "NVIDIA driver series $INSTALLED_SERIES detected (meets 580+ requirement); skipping driver install"
   else
-    log_wait "No NVIDIA driver detected; installing OS-recommended driver"
-    switch_to_recommended_driver
-    DRIVER_SWITCHED=1
+    log_wait "NVIDIA driver series <$((580)) detected ($INSTALLED_SERIES). Aligning to 580+"
+    ensure_driver_580_or_recommended
   fi
   
   # Install OpenCL support FIRST (required for compilation)
