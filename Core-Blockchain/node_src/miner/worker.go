@@ -253,7 +253,14 @@ func newWorker(config *Config, chainConfig *params.ChainConfig, engine consensus
 	// Initialize hybrid processor for GPU acceleration (required)
 	hybridProcessor := hybrid.GetGlobalHybridProcessor()
 	if hybridProcessor == nil {
-		log.Crit("GPU acceleration required but not available: hybrid processor is nil. Ensure GPU drivers and GPU build are installed and enabled.")
+		// Attempt lazy initialization in case startup ordering delayed init
+		if err := hybrid.InitGlobalHybridProcessor(hybrid.DefaultHybridConfig()); err != nil {
+			log.Crit("GPU acceleration required but not available: failed to initialize hybrid processor", "error", err)
+		}
+		hybridProcessor = hybrid.GetGlobalHybridProcessor()
+		if hybridProcessor == nil {
+			log.Crit("GPU acceleration required but not available: hybrid processor is nil. Ensure GPU drivers and GPU build are installed and enabled.")
+		}
 	}
 	worker.hybridProcessor = hybridProcessor
 	if config := hybridProcessor.GetConfig(); config != nil {
