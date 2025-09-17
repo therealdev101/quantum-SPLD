@@ -62,7 +62,7 @@ const (
 	// maxRequestSize is the maximum number of bytes to request from a remote peer.
 	// This number is used as the high cap for account and storage range requests.
 	// Bytecode and trienode are limited more explicitly by the caps below.
-	maxRequestSize = 512 * 1024
+	maxRequestSize = 64 * 1024 * 1024 // 64MB - increased for high TPS blocks
 
 	// maxCodeRequestCount is the maximum number of bytecode blobs to request in a
 	// single query. If this number is too low, we're not filling responses fully

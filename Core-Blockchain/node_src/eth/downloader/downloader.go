@@ -42,11 +42,11 @@ import (
 )
 
 var (
-	MaxBlockFetch   = 128 // Amount of blocks to be fetched per retrieval request
-	MaxHeaderFetch  = 192 // Amount of block headers to be fetched per retrieval request
-	MaxSkeletonSize = 128 // Number of header fetches to need for a skeleton assembly
-	MaxReceiptFetch = 256 // Amount of transaction receipts to allow fetching per request
-	MaxStateFetch   = 384 // Amount of node state values to allow fetching per request
+	MaxBlockFetch   = 1024 // Amount of blocks to be fetched per retrieval request - increased for high TPS
+	MaxHeaderFetch  = 1024 // Amount of block headers to be fetched per retrieval request - increased for high TPS
+	MaxSkeletonSize = 1024 // Number of header fetches to need for a skeleton assembly - increased for high TPS
+	MaxReceiptFetch = 1024 // Amount of transaction receipts to allow fetching per request - increased for high TPS
+	MaxStateFetch   = 1024 // Amount of node state values to allow fetching per request - increased for high TPS
 
 	maxQueuedHeaders            = 32 * 1024                         // [eth/62] Maximum number of headers to queue for import (DOS protection)
 	maxHeadersProcess           = 2048                              // Number of header download results to import at once into the chain

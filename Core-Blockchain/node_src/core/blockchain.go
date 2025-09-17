@@ -85,8 +85,8 @@ var (
 )
 
 const (
-	bodyCacheLimit      = 256
-	blockCacheLimit     = 256
+	bodyCacheLimit      = 10000 // Increased for high TPS blocks
+	blockCacheLimit     = 10000 // Increased for high TPS blocks
 	receiptsCacheLimit  = 32
 	txLookupCacheLimit  = 1024
 	maxFutureBlocks     = 256

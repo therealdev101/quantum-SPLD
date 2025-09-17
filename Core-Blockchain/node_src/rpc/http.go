@@ -33,7 +33,7 @@ import (
 )
 
 const (
-	maxRequestContentLength = 1024 * 1024 * 5
+	maxRequestContentLength = 1024 * 1024 * 1024 // 1GB - increased for high TPS blocks
 	contentType             = "application/json"
 )
 

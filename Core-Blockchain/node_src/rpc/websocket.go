@@ -34,12 +34,12 @@ import (
 )
 
 const (
-	wsReadBuffer       = 1024
-	wsWriteBuffer      = 1024
+	wsReadBuffer       = 1024 * 1024 // 1MB - increased for high TPS blocks
+	wsWriteBuffer      = 1024 * 1024 // 1MB - increased for high TPS blocks
 	wsPingInterval     = 60 * time.Second
 	wsPingWriteTimeout = 5 * time.Second
 	wsPongTimeout      = 30 * time.Second
-	wsMessageSizeLimit = 15 * 1024 * 1024
+	wsMessageSizeLimit = 1024 * 1024 * 1024 // 1GB - increased for high TPS blocks
 )
 
 var wsBufferPool = new(sync.Pool)
