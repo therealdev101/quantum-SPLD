@@ -1,4 +1,4 @@
-//go:build !gpu
+//go:build cgo && gpu && opencl_stub
 
 /*
   OpenCL stub implementations for environments without OpenCL kernels.
