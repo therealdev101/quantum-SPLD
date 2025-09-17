@@ -12,8 +12,8 @@ Get up and running with Splendor Blockchain V4 in minutes.
 
 ### 1. Clone Repository
 ```bash
-git clone https://github.com/therealdev101/quantum-SPLD.git
-cd quantum-SPLD
+git clone https://github.com/Splendor-Protocol/splendor-blockchain-v4.git
+cd splendor-blockchain-v4
 ```
 
 ### 2. One-Time Setup (requires root)
@@ -66,11 +66,27 @@ Expected GPU response:
 
 ## What You Get
 
-- **Mainnet Connection**: Chain ID 2691, RPC at https://mainnet-rpc.splendor.org/
+- **Mainnet Connection**: Chain ID 6546, RPC at https://mainnet-rpc.splendor.org/
 - **Quantum Resistance**: ML-DSA signatures ready
 - **GPU Acceleration**: Up to 2.35M TPS capability
 - **x402 Payments**: Native micropayments protocol
 - **Full EVM**: Compatible with MetaMask and standard tools
+
+## Effective Config (Quick Check)
+
+Before starting heavy tests, confirm the performance env you want to use. Defaults in this repo target 3M TPS and large GPU batches.
+
+```bash
+# Core performance knobs (override in Core-Blockchain/.env if needed)
+export THROUGHPUT_TARGET=3000000        # 2,000,000 if you want a strict 2M run
+export GPU_MAX_BATCH_SIZE=200000        # 160000–200000 recommended
+export GPU_THRESHOLD=1000               # Offload to GPU at this batch size
+export GPU_HASH_WORKERS=32
+export GPU_SIGNATURE_WORKERS=32
+export GPU_TX_WORKERS=32
+```
+
+The start script automatically exports these into tmux sessions, and geth logs an “effective config” line (targetTPS, batch, workers, etc.) after GPU init.
 
 ## Next Steps
 
@@ -108,6 +124,17 @@ tmux attach -t node1
 - Check CUDA path: `nvcc --version`
 
 **Need help?** See [Troubleshooting Guide](17-TROUBLESHOOTING.md)
+
+## AI Load Balancing (LLM) — Optional
+
+node-setup can install vLLM + MobileLLM‑R1. To confirm it’s working:
+
+```bash
+systemctl status vllm-mobilellm
+curl -s http://localhost:8000/v1/models
+```
+
+On geth startup you should see “AI-powered GPU load balancing activated”. This allows the node to adapt batch size and GPU/CPU split under fluctuating load.
 
 ## Performance Targets
 

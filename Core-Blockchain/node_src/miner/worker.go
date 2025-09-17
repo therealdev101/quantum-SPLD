@@ -142,17 +142,19 @@ type worker struct {
 	posa   consensus.PoSA
 	isPoSA bool
 
-	// GPU/Hybrid processing integration
-	hybridProcessor     *hybrid.HybridProcessor
-	hybridStatsOverride *hybrid.HybridStats // Test hook for overriding stats
-	parallelProcessor   *core.ParallelStateProcessor
-	aiLoadBalancer      *ai.AILoadBalancer
-	gpuEnabled          bool
-	batchThreshold      int
-	lastBatchSize       int
-	lastBatchTime       time.Duration
-	adaptiveBatching    bool
-	aiOptimization      bool
+    // GPU/Hybrid processing integration
+	hybridProcessor        *hybrid.HybridProcessor
+	hybridStatsOverride    *hybrid.HybridStats // Test hook for overriding stats
+	parallelProcessor      *core.ParallelStateProcessor
+	aiLoadBalancer         *ai.AILoadBalancer
+	gpuEnabled             bool
+	batchThreshold         int
+	lastBatchSize          int
+	lastBatchTime          time.Duration
+	adaptiveBatching       bool
+	aiOptimization         bool
+	hybridThroughputTarget uint64
+	hybridMaxBatchSize     int
 
 	// Feeds
 	pendingLogsFeed event.Feed
@@ -218,38 +220,47 @@ type worker struct {
 func newWorker(config *Config, chainConfig *params.ChainConfig, engine consensus.Engine, eth Backend, mux *event.TypeMux, isLocalBlock func(*types.Block) bool, init bool) *worker {
 	posa, isPoSA := engine.(consensus.PoSA)
 	worker := &worker{
-		config:             config,
-		chainConfig:        chainConfig,
-		engine:             engine,
-		isPoSA:             isPoSA,
-		posa:               posa,
-		eth:                eth,
-		mux:                mux,
-		chain:              eth.BlockChain(),
-		isLocalBlock:       isLocalBlock,
-		localUncles:        make(map[common.Hash]*types.Block),
-		remoteUncles:       make(map[common.Hash]*types.Block),
-		unconfirmed:        newUnconfirmedBlocks(eth.BlockChain(), miningLogAtDepth),
-		pendingTasks:       make(map[common.Hash]*task),
-		txsCh:              make(chan core.NewTxsEvent, txChanSize),
-		chainHeadCh:        make(chan core.ChainHeadEvent, chainHeadChanSize),
-		chainSideCh:        make(chan core.ChainSideEvent, chainSideChanSize),
-		newWorkCh:          make(chan *newWorkReq),
-		taskCh:             make(chan *task),
-		resultCh:           make(chan *types.Block, resultQueueSize),
-		exitCh:             make(chan struct{}),
-		startCh:            make(chan struct{}, 1),
-		resubmitIntervalCh: make(chan time.Duration),
-		resubmitAdjustCh:   make(chan *intervalAdjust, resubmitAdjustChanSize),
-		batchThreshold:     1000, // 1K threshold for GPU activation (500+ transactions trigger GPU)
-		adaptiveBatching:   true, // Enable adaptive batch sizing for 1M+ transactions
-		aiOptimization:     true, // Enable AI-driven optimization
+		config:                 config,
+		chainConfig:            chainConfig,
+		engine:                 engine,
+		isPoSA:                 isPoSA,
+		posa:                   posa,
+		eth:                    eth,
+		mux:                    mux,
+		chain:                  eth.BlockChain(),
+		isLocalBlock:           isLocalBlock,
+		localUncles:            make(map[common.Hash]*types.Block),
+		remoteUncles:           make(map[common.Hash]*types.Block),
+		unconfirmed:            newUnconfirmedBlocks(eth.BlockChain(), miningLogAtDepth),
+		pendingTasks:           make(map[common.Hash]*task),
+		txsCh:                  make(chan core.NewTxsEvent, txChanSize),
+		chainHeadCh:            make(chan core.ChainHeadEvent, chainHeadChanSize),
+		chainSideCh:            make(chan core.ChainSideEvent, chainSideChanSize),
+		newWorkCh:              make(chan *newWorkReq),
+		taskCh:                 make(chan *task),
+		resultCh:               make(chan *types.Block, resultQueueSize),
+		exitCh:                 make(chan struct{}),
+		startCh:                make(chan struct{}, 1),
+		resubmitIntervalCh:     make(chan time.Duration),
+		resubmitAdjustCh:       make(chan *intervalAdjust, resubmitAdjustChanSize),
+		batchThreshold:         1000, // 1K threshold for GPU activation (500+ transactions trigger GPU)
+		adaptiveBatching:       true, // Enable adaptive batch sizing for 1M+ transactions
+		aiOptimization:         true, // Enable AI-driven optimization
+		hybridThroughputTarget: 3000000,
+		hybridMaxBatchSize:     200000,
 	}
 
 	// Initialize hybrid processor for GPU acceleration
 	hybridProcessor := hybrid.GetGlobalHybridProcessor()
 	if hybridProcessor != nil {
 		worker.hybridProcessor = hybridProcessor
+		if config := hybridProcessor.GetConfig(); config != nil {
+			// Always set, zero disables TPS-based adjustment
+			worker.hybridThroughputTarget = config.ThroughputTarget
+			if config.GPUConfig != nil && config.GPUConfig.MaxBatchSize > 0 {
+				worker.hybridMaxBatchSize = config.GPUConfig.MaxBatchSize
+			}
+		}
 		// Check if GPU is enabled by looking at the hybrid processor's configuration
 		stats := hybridProcessor.GetStats()
 		worker.gpuEnabled = stats.GPUProcessed > 0 || stats.GPUUtilization >= 0
@@ -258,6 +269,21 @@ func newWorker(config *Config, chainConfig *params.ChainConfig, engine consensus
 		log.Info("Miner running in CPU-only mode")
 	}
 
+	// Environment overrides; accept zero for THROUGHPUT_TARGET to disable adjustment
+	if val, ok := os.LookupEnv("THROUGHPUT_TARGET"); ok {
+		if v, err := strconv.ParseUint(val, 10, 64); err == nil {
+			worker.hybridThroughputTarget = v
+		} else {
+			log.Warn("Invalid THROUGHPUT_TARGET; keeping default", "value", val, "err", err)
+		}
+	}
+	if val, ok := os.LookupEnv("GPU_MAX_BATCH_SIZE"); ok {
+		if v, err := strconv.Atoi(val); err == nil && v > 0 {
+			worker.hybridMaxBatchSize = v
+		} else if err != nil {
+			log.Warn("Invalid GPU_MAX_BATCH_SIZE; keeping default", "value", val, "err", err)
+		}
+	}
 	// Initialize AI load balancer for intelligent optimization
 	aiLoadBalancer := ai.GetGlobalAILoadBalancer()
 	if aiLoadBalancer != nil {
@@ -1336,13 +1362,13 @@ func (w *worker) calculateOptimalBatchSize() int {
 	}
 
 	// Get current hybrid processor stats
-	stats := w.currentHybridStats()
+		stats := w.currentHybridStats()
 
-	// Base batch size
-	baseBatchSize := w.batchThreshold
-	if w.lastBatchSize > baseBatchSize {
-		baseBatchSize = w.lastBatchSize
-	}
+		// Base batch size
+		baseBatchSize := w.batchThreshold
+		if w.lastBatchSize > baseBatchSize {
+			baseBatchSize = w.lastBatchSize
+		}
 
 	// Use AI recommendations if available
 	if w.aiOptimization && w.aiLoadBalancer != nil {
@@ -1373,43 +1399,32 @@ func (w *worker) calculateOptimalBatchSize() int {
 		baseBatchSize = int(float64(baseBatchSize) * 0.8)
 	}
 
-	// Adjust based on current TPS vs target (read from env or default to hybrid goal)
-	parseUint := func(s string, def uint64) uint64 {
-		if s == "" {
-			return def
-		}
-		if v, err := strconv.ParseUint(s, 10, 64); err == nil {
-			return v
-		}
-		return def
-	}
-	// Default aligns with hybrid.DefaultHybridConfig and geth init (3M)
-	targetTPS := parseUint(os.Getenv("THROUGHPUT_TARGET"), 3000000)
-	if targetTPS > 0 {
-		target := float64(targetTPS)
-		current := float64(stats.CurrentTPS)
-		ratio := 0.0
-		if target > 0 {
-			ratio = current / target
-		}
-
-		switch {
-		case ratio < 0.95:
-			diffRatio := 1 - ratio
-			growth := 1 + math.Min(diffRatio*0.8, 0.5)
-			if growth < 1.05 {
-				growth = 1.05
+		// Adjust based on current TPS vs target (cached from hybrid config or environment overrides)
+		targetTPS := w.hybridThroughputTarget
+		if targetTPS > 0 { // zero disables TPS-based adjustment
+			target := float64(targetTPS)
+			current := float64(stats.CurrentTPS)
+			ratio := 0.0
+			if target > 0 {
+				ratio = current / target
 			}
-			baseBatchSize = int(float64(baseBatchSize) * growth)
-		case ratio >= 1.0:
-			overRatio := ratio - 1
-			reduction := 1 - math.Min(overRatio*0.6, 0.3)
-			if reduction < 0.7 {
-				reduction = 0.7
+			switch {
+			case ratio < 0.95:
+				diffRatio := 1 - ratio
+				growth := 1 + math.Min(diffRatio*0.8, 0.5)
+				if growth < 1.05 {
+					growth = 1.05
+				}
+				baseBatchSize = int(float64(baseBatchSize) * growth)
+			case ratio >= 1.0:
+				overRatio := ratio - 1
+				reduction := 1 - math.Min(overRatio*0.6, 0.3)
+				if reduction < 0.7 {
+					reduction = 0.7
+				}
+				baseBatchSize = int(float64(baseBatchSize) * reduction)
 			}
-			baseBatchSize = int(float64(baseBatchSize) * reduction)
 		}
-	}
 
 	// Adjust based on previous batch performance
 	if w.lastBatchTime > 0 && w.lastBatchSize > 0 {
@@ -1427,12 +1442,11 @@ func (w *worker) calculateOptimalBatchSize() int {
 	if w.batchThreshold > minBatchSize {
 		minBatchSize = w.batchThreshold
 	}
-	// Default max aligned with cmd/geth/main.go (env default 80K)
-	maxDefault := 200000
-	if v, err := strconv.Atoi(os.Getenv("GPU_MAX_BATCH_SIZE")); err == nil && v > 0 {
-		maxDefault = v
-	}
-	maxBatchSize := maxDefault
+		// Default max aligned with cached hybrid configuration
+		maxBatchSize := w.hybridMaxBatchSize
+		if maxBatchSize <= 0 {
+			maxBatchSize = 200000
+		}
 
 	if baseBatchSize < minBatchSize {
 		baseBatchSize = minBatchSize
