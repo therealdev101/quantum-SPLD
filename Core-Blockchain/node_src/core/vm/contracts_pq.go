@@ -5,8 +5,8 @@
 package vm
 
 import (
-	"encoding/binary"
-	"errors"
+    "encoding/binary"
+    "errors"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto/mldsa"
@@ -21,7 +21,38 @@ var (
 
 // PostQuantumPrecompiles contains the post-quantum precompiled contracts
 var PostQuantumPrecompiles = map[common.Address]PrecompiledContract{
-	MLDSAVerifyAddress: &mldsaVerify{},
+    MLDSAVerifyAddress: &mldsaVerify{},
+}
+
+// Register post-quantum precompiles into the standard precompile sets so they are
+// available without requiring external wiring. This keeps activation simple while
+// allowing gas costs to be tuned via params.
+func init() {
+    // Attach ML-DSA verify to all standard precompile sets so calls to 0x0100 work
+    // across forks. If you prefer conditional activation, guard this with chain
+    // config flags and append conditionally.
+    for addr, pc := range PostQuantumPrecompiles {
+        // Homestead
+        if PrecompiledContractsHomestead[addr] == nil {
+            PrecompiledContractsHomestead[addr] = pc
+            PrecompiledAddressesHomestead = append(PrecompiledAddressesHomestead, addr)
+        }
+        // Byzantium
+        if PrecompiledContractsByzantium[addr] == nil {
+            PrecompiledContractsByzantium[addr] = pc
+            PrecompiledAddressesByzantium = append(PrecompiledAddressesByzantium, addr)
+        }
+        // Istanbul
+        if PrecompiledContractsIstanbul[addr] == nil {
+            PrecompiledContractsIstanbul[addr] = pc
+            PrecompiledAddressesIstanbul = append(PrecompiledAddressesIstanbul, addr)
+        }
+        // Berlin
+        if PrecompiledContractsBerlin[addr] == nil {
+            PrecompiledContractsBerlin[addr] = pc
+            PrecompiledAddressesBerlin = append(PrecompiledAddressesBerlin, addr)
+        }
+    }
 }
 
 // mldsaVerify implements ML-DSA signature verification precompile
