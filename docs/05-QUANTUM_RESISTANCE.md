@@ -55,6 +55,16 @@ make -f Makefile.pq all
 make -f Makefile.pq pq-test
 ```
 
+### Quick Precompile Sanity Check (eth_call)
+
+After starting the node via `Core-Blockchain/node-start.sh`, you can call the ML‑DSA precompile (0x0100) directly to confirm wiring:
+
+```bash
+bash Core-Blockchain/scripts/test-pq-precompile.sh
+```
+
+This sends a minimal header-only payload (alg=ML‑DSA‑65, zero lengths) and expects a 32‑byte zero result (false), proving the precompile is reachable. Use real message/signature/public key to expect a true result.
+
 ## Usage
 
 ### Precompile Contract

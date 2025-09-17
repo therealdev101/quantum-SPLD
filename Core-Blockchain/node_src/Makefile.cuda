@@ -37,6 +37,20 @@ cuda-lib: $(CUDA_OBJECTS)
 geth-cuda: cuda-lib
 	CGO_CFLAGS="$(CGO_CFLAGS)" CGO_LDFLAGS="$(CGO_LDFLAGS) -Lcommon/gpu -lsplendor_cuda" go build -tags "gpu,no_liboqs" -o build/bin/geth ./cmd/geth
 
+# Build geth with CUDA + liboqs (PQ) support
+.PHONY: geth-cuda-pq
+geth-cuda-pq: cuda-lib
+	@echo "Building geth with CUDA + liboqs (PQ) support..."
+	@if [ ! -d "/tmp/splendor_liboqs/include" ] || [ ! -d "/tmp/splendor_liboqs/lib" ]; then \
+		echo "liboqs headers/libs not found under /tmp/splendor_liboqs"; \
+		echo "Run: make -f Makefile.pq liboqs (from node_src) or node-setup.sh"; \
+		exit 1; \
+	fi
+	CGO_CFLAGS="$(CGO_CFLAGS) -I/tmp/splendor_liboqs/include" \
+	CGO_LDFLAGS="$(CGO_LDFLAGS) -Lcommon/gpu -lsplendor_cuda -L/tmp/splendor_liboqs/lib -loqs -lcrypto -lssl -ldl -lpthread" \
+		go build -tags gpu -o build/bin/geth ./cmd/geth
+	@echo "CUDA + PQ build complete: build/bin/geth"
+
 # Build all tools with CUDA support
 .PHONY: all-cuda
 all-cuda: cuda-objects
@@ -91,6 +105,7 @@ gpu-info:
 help-cuda:
 	@echo "CUDA Build Targets:"
 	@echo "  geth-cuda     - Build geth with CUDA support"
+	@echo "  geth-cuda-pq  - Build geth with CUDA + liboqs (PQ) support"
 	@echo "  all-cuda      - Build all tools with CUDA support"
 	@echo "  test-cuda     - Run CUDA tests"
 	@echo "  cuda-objects  - Compile CUDA kernels only"

@@ -132,9 +132,9 @@ startRpc(){
           tmux send-keys -t node$node_num "export GPU_MAX_BATCH_SIZE=${GPU_MAX_BATCH_SIZE:-200000}" Enter
           tmux send-keys -t node$node_num "export GPU_MAX_MEMORY_USAGE=${GPU_MAX_MEMORY_USAGE:-17179869184}" Enter
           tmux send-keys -t node$node_num "export GPU_THRESHOLD=${GPU_THRESHOLD:-1000}" Enter
-          tmux send-keys -t node$node_num "export GPU_HASH_WORKERS=${GPU_HASH_WORKERS:-24}" Enter
-          tmux send-keys -t node$node_num "export GPU_SIGNATURE_WORKERS=${GPU_SIGNATURE_WORKERS:-24}" Enter
-          tmux send-keys -t node$node_num "export GPU_TX_WORKERS=${GPU_TX_WORKERS:-24}" Enter
+          tmux send-keys -t node$node_num "export GPU_HASH_WORKERS=${GPU_HASH_WORKERS:-32}" Enter
+          tmux send-keys -t node$node_num "export GPU_SIGNATURE_WORKERS=${GPU_SIGNATURE_WORKERS:-32}" Enter
+          tmux send-keys -t node$node_num "export GPU_TX_WORKERS=${GPU_TX_WORKERS:-32}" Enter
           tmux send-keys -t node$node_num "export ENABLE_AI_LOAD_BALANCING=${ENABLE_AI_LOAD_BALANCING:-true}" Enter
         fi
         tmux send-keys -t node$node_num "./node_src/build/bin/geth --datadir ./chaindata/node$node_num --networkid $CHAINID --bootnodes $BOOTNODE --port 30303 --ws --ws.addr $IP --ws.origins '*' --ws.port 8545 --http --http.port 80 --rpc.txfeecap 0 --http.corsdomain '*' --nat any --http.api db,eth,net,web3,personal,txpool,miner,debug,x402,gpu --http.addr 0.0.0.0 --http.vhosts '*' --vmdebug --pprof --pprof.port 6060 --pprof.addr $IP --syncmode=full --gcmode=archive --cache=1024 --cache.database=512 --cache.trie=256 --cache.gc=256 --txpool.accountslots=1000000 --txpool.globalslots=10000000 --txpool.accountqueue=500000 --txpool.globalqueue=5000000 --maxpeers=25 --ipcpath './chaindata/node$node_num/geth.ipc' console" Enter
@@ -171,9 +171,9 @@ startValidator(){
           tmux send-keys -t node$node_num "export GPU_MAX_BATCH_SIZE=${GPU_MAX_BATCH_SIZE:-200000}" Enter
           tmux send-keys -t node$node_num "export GPU_MAX_MEMORY_USAGE=${GPU_MAX_MEMORY_USAGE:-17179869184}" Enter
           tmux send-keys -t node$node_num "export GPU_THRESHOLD=${GPU_THRESHOLD:-1000}" Enter
-          tmux send-keys -t node$node_num "export GPU_HASH_WORKERS=${GPU_HASH_WORKERS:-24}" Enter
-          tmux send-keys -t node$node_num "export GPU_SIGNATURE_WORKERS=${GPU_SIGNATURE_WORKERS:-24}" Enter
-          tmux send-keys -t node$node_num "export GPU_TX_WORKERS=${GPU_TX_WORKERS:-24}" Enter
+          tmux send-keys -t node$node_num "export GPU_HASH_WORKERS=${GPU_HASH_WORKERS:-32}" Enter
+          tmux send-keys -t node$node_num "export GPU_SIGNATURE_WORKERS=${GPU_SIGNATURE_WORKERS:-32}" Enter
+          tmux send-keys -t node$node_num "export GPU_TX_WORKERS=${GPU_TX_WORKERS:-32}" Enter
           tmux send-keys -t node$node_num "export ENABLE_AI_LOAD_BALANCING=${ENABLE_AI_LOAD_BALANCING:-true}" Enter
         fi
         tmux send-keys -t node$node_num "LD_LIBRARY_PATH=./node_src/common/gpu:/usr/local/cuda/lib64:\$LD_LIBRARY_PATH ./node_src/build/bin/geth --datadir ./chaindata/node$node_num --networkid $CHAINID --bootnodes $BOOTNODE --mine --port 30303 --nat extip:$IP --gpo.percentile 0 --gpo.maxprice 100 --gpo.ignoreprice 0 --miner.gaslimit 500000000000 --unlock 0 --password ./chaindata/node$node_num/pass.txt --syncmode=full --gcmode=archive --cache=1024 --cache.database=512 --cache.trie=256 --cache.gc=256 --txpool.accountslots=1000000 --txpool.globalslots=10000000 --txpool.accountqueue=500000 --txpool.globalqueue=5000000 --maxpeers=25 console" Enter

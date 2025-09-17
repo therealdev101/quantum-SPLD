@@ -572,12 +572,17 @@ func initializeGPUAcceleration(ctx *cli.Context) {
 		log.Info("AI load balancer disabled by configuration")
 	}
 
-	log.Info("GPU acceleration initialized successfully",
-		"gpuThreshold", hybridConfig.GPUThreshold,
-		"targetTPS", hybridConfig.ThroughputTarget,
-		"gpuType", hybridConfig.GPUConfig.PreferredGPUType,
-		"maxBatch", hybridConfig.GPUConfig.MaxBatchSize,
-	)
+    log.Info("GPU acceleration initialized successfully",
+        "gpuThreshold", hybridConfig.GPUThreshold,
+        "targetTPS", hybridConfig.ThroughputTarget,
+        "gpuType", hybridConfig.GPUConfig.PreferredGPUType,
+        "maxBatch", hybridConfig.GPUConfig.MaxBatchSize,
+        "hashWorkers", hybridConfig.GPUConfig.HashWorkers,
+        "sigWorkers", hybridConfig.GPUConfig.SignatureWorkers,
+        "txWorkers", hybridConfig.GPUConfig.TxWorkers,
+        "maxGPUMemBytes", hybridConfig.GPUConfig.MaxMemoryUsage,
+        "pipelining", hybridConfig.GPUConfig.EnablePipelining,
+    )
 }
 
 // unlockAccounts unlocks any account specifically requested.

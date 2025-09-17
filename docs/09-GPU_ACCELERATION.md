@@ -33,7 +33,7 @@ Splendor's hybrid CPU/GPU processing system intelligently distributes workload f
 
 ## Quick Setup
 
-### Automated Installation
+### Automated Installation (Preferred)
 ```bash
 # The setup script handles everything
 sudo bash Core-Blockchain/node-setup.sh --rpc --validator 0 --nopk
@@ -67,20 +67,20 @@ The setup script creates optimal defaults:
 # GPU Acceleration
 ENABLE_GPU=true
 PREFERRED_GPU_TYPE=CUDA
-GPU_MAX_BATCH_SIZE=160000
-GPU_MAX_MEMORY_USAGE=12884901888  # 12GB
+GPU_MAX_BATCH_SIZE=200000
+GPU_MAX_MEMORY_USAGE=17179869184  # 16GB
 GPU_ENABLE_PIPELINING=true
 
 # Hybrid Processing
-GPU_THRESHOLD=1000               # Use GPU for batches >= 1000 tx
-CPU_GPU_RATIO=0.85              # 85% GPU, 15% CPU
+GPU_THRESHOLD=1000                # Use GPU for batches >= 1000 tx
+CPU_GPU_RATIO=0.85               # 85% GPU, 15% CPU
 ADAPTIVE_LOAD_BALANCING=true
-THROUGHPUT_TARGET=3000000       # 3M TPS target
+THROUGHPUT_TARGET=3000000        # 3M TPS target
 
 # Worker Configuration
-GPU_HASH_WORKERS=8
-GPU_SIGNATURE_WORKERS=8
-GPU_TX_WORKERS=8
+GPU_HASH_WORKERS=32
+GPU_SIGNATURE_WORKERS=32
+GPU_TX_WORKERS=32
 
 # Resource Limits
 MAX_CPU_UTILIZATION=0.85
@@ -93,15 +93,15 @@ MAX_GPU_UTILIZATION=0.95
 ```bash
 GPU_MAX_BATCH_SIZE=200000
 GPU_THRESHOLD=500
-THROUGHPUT_TARGET=2500000
-GPU_HASH_WORKERS=12
-GPU_SIGNATURE_WORKERS=12
-GPU_TX_WORKERS=12
+THROUGHPUT_TARGET=3000000
+GPU_HASH_WORKERS=32
+GPU_SIGNATURE_WORKERS=32
+GPU_TX_WORKERS=32
 ```
 
 **For RTX 4080 (Balanced):**
 ```bash
-GPU_MAX_BATCH_SIZE=120000
+GPU_MAX_BATCH_SIZE=150000
 GPU_THRESHOLD=800
 THROUGHPUT_TARGET=1500000
 GPU_HASH_WORKERS=8
