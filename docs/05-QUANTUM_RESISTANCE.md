@@ -55,36 +55,46 @@ make -f Makefile.pq all
 make -f Makefile.pq pq-test
 ```
 
-### Quick Precompile Sanity Check (eth_call)
-
-After starting the node via `Core-Blockchain/node-start.sh`, you can call the ML‑DSA precompile (0x0100) directly to confirm wiring:
-
-```bash
-bash Core-Blockchain/scripts/test-pq-precompile.sh
-```
-
-This sends a minimal header-only payload (alg=ML‑DSA‑65, zero lengths) and expects a 32‑byte zero result (false), proving the precompile is reachable. Use real message/signature/public key to expect a true result.
-
 ## Usage
 
 ### Precompile Contract
 
-ML‑DSA verification is exposed as an EVM precompile at address `0x0100`.
+ML-DSA verification is available as a precompile contract:
 
-Important:
-- The input format is not a standard ABI tuple; it is a compact header + payload:
-  - `[algorithm_id(1)] + [message_len(4)] + [signature_len(4)] + [pubkey_len(4)] + [message] + [signature] + [publicKey]`
-- For a quick sanity check, prefer an `eth_call` using the provided script:
-
-```bash
-bash Core-Blockchain/scripts/test-pq-precompile.sh
+```solidity
+// Verify ML-DSA signature
+function verifyMLDSA(
+    bytes memory message,
+    bytes memory signature,
+    bytes memory publicKey,
+    uint8 algorithm  // 44, 65, or 87
+) public view returns (bool) {
+    // Call precompile at address 0x09
+    (bool success, bytes memory result) = address(0x09).staticcall(
+        abi.encode(message, signature, publicKey, algorithm)
+    );
+    return success && abi.decode(result, (bool));
+}
 ```
 
-This confirms the precompile is wired and callable. For Solidity integration, add a helper that assembles the exact byte layout and performs a `staticcall` to `address(0x0100)`.
+### JSON-RPC API
 
-### JSON-RPC
+```bash
+# Get supported algorithms
+curl -X POST -H "Content-Type: application/json" \
+  --data '{"jsonrpc":"2.0","method":"pq_getSupportedAlgorithms","params":[],"id":1}' \
+  http://localhost:8545
 
-There are no `pq_*` JSON‑RPC methods exposed by the client. Use the precompile via `eth_call` (see the script in Core-Blockchain/scripts/test-pq-precompile.sh) or integrate at Solidity level with a helper that assembles the byte layout and `staticcall`s `0x0100`.
+# Verify signature
+curl -X POST -H "Content-Type: application/json" \
+  --data '{"jsonrpc":"2.0","method":"pq_verifySignature","params":[{
+    "algorithm": "ML-DSA-65",
+    "message": "0x48656c6c6f20576f726c64",
+    "signature": "0x...",
+    "publicKey": "0x..."
+  }],"id":1}' \
+  http://localhost:8545
+```
 
 ## Algorithm Selection
 
@@ -96,14 +106,14 @@ There are no `pq_*` JSON‑RPC methods exposed by the client. Use the precompile
 
 ### ML-DSA-65 (Dilithium3)
 - **Use Case**: General purpose, recommended default
-- **Signature Size**: 3,309 bytes
-- **Public Key**: 1,952 bytes
+- **Signature Size**: ~3,293 bytes
+- **Public Key**: ~1,952 bytes
 - **Performance**: Balanced
 
 ### ML-DSA-87 (Dilithium5)
 - **Use Case**: High-security applications, long-term storage
-- **Signature Size**: 4,627 bytes
-- **Public Key**: 2,592 bytes
+- **Signature Size**: ~4,595 bytes
+- **Public Key**: ~2,592 bytes
 - **Performance**: Highest security
 
 ## Performance Characteristics
@@ -111,8 +121,8 @@ There are no `pq_*` JSON‑RPC methods exposed by the client. Use the precompile
 | Algorithm | Sign (ops/sec) | Verify (ops/sec) | Signature Size |
 |-----------|----------------|------------------|----------------|
 | ML-DSA-44 | ~15,000 | ~45,000 | 2,420 bytes |
-| ML-DSA-65 | ~10,000 | ~30,000 | 3,309 bytes |
-| ML-DSA-87 | ~7,000  | ~20,000 | 4,627 bytes |
+| ML-DSA-65 | ~10,000 | ~30,000 | 3,293 bytes |
+| ML-DSA-87 | ~7,000 | ~20,000 | 4,595 bytes |
 
 *Benchmarks on Intel i9-13900K*
 
@@ -136,31 +146,21 @@ There are no `pq_*` JSON‑RPC methods exposed by the client. Use the precompile
 
 ## Integration Examples
 
-### Web3 Integration (eth_call)
-
-Using ethers.js to call the precompile (0x0100) with the compact header+payload format:
+### Web3 Integration
 
 ```javascript
-import { ethers } from 'ethers'
+// Using ethers.js with ML-DSA
+const provider = new ethers.providers.JsonRpcProvider('http://localhost:8545');
 
-const provider = new ethers.providers.JsonRpcProvider('http://localhost:8545')
-
-function buildMLDSAInput(algId, messageBytes, sigBytes, pkBytes) {
-  const header = ethers.utils.concat([
-    ethers.utils.hexlify([algId]),                                       // 1 byte
-    ethers.utils.hexZeroPad(ethers.utils.hexlify(messageBytes.length), 4),
-    ethers.utils.hexZeroPad(ethers.utils.hexlify(sigBytes.length), 4),
-    ethers.utils.hexZeroPad(ethers.utils.hexlify(pkBytes.length), 4),
-  ])
-  return ethers.utils.hexConcat([header, messageBytes, sigBytes, pkBytes])
-}
-
-async function verifyMLDSA(message, signature, publicKey, algId = 0x65) {
-  const data = buildMLDSAInput(algId, message, signature, publicKey)
-  const call = { to: '0x0000000000000000000000000000000000000100', data }
-  const res = await provider.call(call, 'latest')
-  // 32-byte boolean: 0x...01 means true
-  return res.endsWith('01')
+// Verify ML-DSA signature
+async function verifyMLDSASignature(message, signature, publicKey) {
+    const result = await provider.send('pq_verifySignature', [{
+        algorithm: 'ML-DSA-65',
+        message: ethers.utils.hexlify(ethers.utils.toUtf8Bytes(message)),
+        signature: signature,
+        publicKey: publicKey
+    }]);
+    return result;
 }
 ```
 
@@ -215,7 +215,7 @@ ls -la /tmp/splendor_liboqs/
 
 **Algorithm not supported:**
 - Ensure liboqs was built with ML-DSA support
-- For Go integrations, use `mldsa.IsMLDSASupported(algorithm)`; for precompile, a mismatch will simply return false.
+- Check available algorithms: `pq_getSupportedAlgorithms`
 
 **Signature verification fails:**
 - Verify algorithm parameter matches key/signature

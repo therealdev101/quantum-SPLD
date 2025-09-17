@@ -6,17 +6,7 @@ RED='\033[0;31m'
 ORANGE='\033[0;33m'
 NC='\033[0m' # No Color
 CYAN='\033[0;36m'
-BASE_DIR='/root/quantum-SPLD'
-
-# Behavior toggles (can be overridden by flags)
-# Default: keep existing NVIDIA drivers; only install if missing
-ENFORCE_DRIVER_VERSION=false
-ENFORCE_RECOMMENDED_DRIVER=true
-AUTO_REBOOT=true
-# Secure Boot policy
-ENFORCE_SECURE_BOOT_DISABLED=true
-ALLOW_SECURE_BOOT=false
-AUTO_DISABLE_SECURE_BOOT=false
+BASE_DIR='/root/splendor-blockchain-v4'
 
 # Flag: skip validator account setup (task8)
 NOPK=false
@@ -34,189 +24,6 @@ totalNodes=$(($totalRpc + $totalValidator))
 
 #########################################################################
 
-# Hardware/software requirements
-# Minimal hard requirements (must pass): 14+ CPU cores and NVIDIA 40-series class (or >=20GB VRAM)
-REQUIRED_CPU_CORES=14
-MIN_GPU_VRAM_MB=20000
-
-# Recommended reference profile (best-effort install/validate; warnings if different)
-RECOMMENDED_GPU_NAME="RTX 4000 SFF Ada"
-RECOMMENDED_DRIVER_VERSION="575.57.08"
-RECOMMENDED_CUDA_MAJOR_MINOR="12.6"
-
-# Target versions for installation (skip install if met or exceeded)
-TARGET_DRIVER_VERSION="575.57.08"
-TARGET_CUDA_VERSION="12.6.85"
-MIN_DRIVER_VERSION="575.57.08"
-MIN_CUDA_VERSION="12.6.85"
-
-validate_strict_requirements(){
-  log_wait "Validating strict hardware/software requirements"
-
-  # CPU topology: require >= 14 cores (no specific model)
-  CPU_CORES=$(lscpu | awk -F: '/^CPU\(s\)/ {gsub(/^ +| +$/,"", $2); print $2}' | head -1)
-  if [ -z "$CPU_CORES" ]; then
-    # fallback: cores per socket * sockets
-    CoresPerSocket=$(lscpu | awk -F: '/Core\(s\) per socket/ {gsub(/^ +| +$/,"", $2); print $2}')
-    Sockets=$(lscpu | awk -F: '/Socket\(s\)/ {gsub(/^ +| +$/,"", $2); print $2}')
-    CPU_CORES=$(( CoresPerSocket * Sockets ))
-  fi
-  if [ "$CPU_CORES" -lt "$REQUIRED_CPU_CORES" ]; then
-    log_wait "Warning: Recommended CPU cores >= $REQUIRED_CPU_CORES, found $CPU_CORES (continuing)"
-  fi
-
-  # NVIDIA GPU checks
-  if ! command -v nvidia-smi >/dev/null 2>&1; then
-    log_error "nvidia-smi not found; install NVIDIA drivers first"; return 1
-  fi
-
-  GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader | head -1)
-  GPU_MEM_MB=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | head -1)
-  DRIVER_VER=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -1)
-
-  # Recommended: at least RTX 40-class or >=20GB VRAM (warning only)
-  if ! echo "$GPU_NAME" | grep -qiE "RTX 40|Ada|4090|4080|4070|4060|4000" && [ "$GPU_MEM_MB" -lt "$MIN_GPU_VRAM_MB" ]; then
-    log_wait "Warning: Recommended GPU is NVIDIA RTX 40-class or >=20GB VRAM. Found '$GPU_NAME' with ${GPU_MEM_MB}MB VRAM (continuing)"
-  fi
-
-  # Recommend: specific model and versions (warnings only)
-  if ! echo "$GPU_NAME" | grep -qi "$RECOMMENDED_GPU_NAME"; then
-    log_wait "Warning: Recommended GPU is '$RECOMMENDED_GPU_NAME', found '$GPU_NAME' (continuing)"
-  fi
-  if ! version_ge "$DRIVER_VER" "$MIN_DRIVER_VERSION"; then
-    log_wait "Warning: NVIDIA driver below minimum $MIN_DRIVER_VERSION, found $DRIVER_VER (continuing)"
-  fi
-
-  # CUDA toolkit version
-  if command -v nvcc >/dev/null 2>&1; then
-    CUDA_VER=$(get_current_cuda_version)
-    if ! version_ge "$CUDA_VER" "$MIN_CUDA_VERSION"; then
-      log_wait "Warning: CUDA below minimum $MIN_CUDA_VERSION, found $CUDA_VER (continuing)"
-    fi
-  else
-    log_error "nvcc not found; CUDA toolkit not installed"; return 1
-  fi
-
-  # cuBLAS check
-  if [ ! -f "/usr/local/cuda/lib64/libcublas.so" ] && [ ! -f "/usr/local/cuda/lib64/libcublas.so.12" ]; then
-    log_wait "Warning: cuBLAS not found in /usr/local/cuda/lib64 (expected with CUDA toolkit)"
-  fi
-
-  # cuDNN check (common locations)
-  if [ ! -f "/usr/lib/x86_64-linux-gnu/libcudnn.so" ] && [ ! -f "/usr/lib/x86_64-linux-gnu/libcudnn.so.9" ] && [ ! -f "/usr/local/cuda/lib64/libcudnn.so" ]; then
-    log_wait "Warning: cuDNN not found; install cuDNN for CUDA $RECOMMENDED_CUDA_MAJOR_MINOR for best performance"
-  fi
-
-  log_success "Strict requirements verified successfully"
-}
-
-# Tidy duplicate apt sources to silence warnings on Ubuntu 24.04
-tidy_apt_sources(){
-  if [ -f /etc/apt/sources.list.d/ubuntu.sources ] && grep -qE '^deb .* restricted' /etc/apt/sources.list 2>/dev/null; then
-    log_wait "Tidying duplicate apt sources (restricted)"
-    cp -f /etc/apt/sources.list /etc/apt/sources.list.bak.splendor || true
-    sed -i 's/^deb \(.* restricted.*\)$/# splendor-disable-duplicate \0/' /etc/apt/sources.list || true
-    apt update || true
-  fi
-}
-
-# Fast, robust GPU readiness detection (accepts multiple positive signals)
-gpu_is_ready() {
-  # Strict readiness: driver loaded and NVML can enumerate at least one GPU
-  if command -v nvidia-smi >/dev/null 2>&1; then
-    if timeout 4 nvidia-smi -L 2>/dev/null | grep -q "."; then
-      return 0
-    fi
-  fi
-  # Secondary: device node and module present (covers rare path cases)
-  if [ -e /dev/nvidia0 ] && lsmod 2>/dev/null | grep -qi '^nvidia\b'; then
-    return 0
-  fi
-  # Hardware present but inactive driver
-  if lspci 2>/dev/null | grep -qi nvidia; then
-    return 2
-  fi
-  return 1
-}
-
-# Version helpers
-version_ge() {
-  dpkg --compare-versions "$1" ge "$2"
-}
-
-get_current_driver_version() {
-  if command -v nvidia-smi >/dev/null 2>&1; then
-    nvidia-smi --query-gpu=driver_version --format=csv,noheader,nounits 2>/dev/null | head -1
-  fi
-}
-
-get_current_cuda_version() {
-  # Check multiple possible CUDA installations
-  local cuda_paths="/usr/local/cuda/bin/nvcc /usr/local/cuda-*/bin/nvcc"
-  local nvcc_path=""
-  
-  # First try the standard nvcc command
-  if command -v nvcc >/dev/null 2>&1; then
-    nvcc_path="nvcc"
-  else
-    # Try to find nvcc in common CUDA installation paths
-    for path in $cuda_paths; do
-      if [ -f "$path" ]; then
-        nvcc_path="$path"
-        break
-      fi
-    done
-  fi
-  
-  if [ -n "$nvcc_path" ]; then
-    local v
-    v=$($nvcc_path --version 2>/dev/null | grep -oE 'V[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's/^V//')
-    if [ -n "$v" ]; then echo "$v"; return; fi
-    v=$($nvcc_path --version 2>/dev/null | awk -F'release ' '/release/ {print $2}' | awk '{print $1}' | head -1)
-    if [ -n "$v" ]; then
-      case "$v" in
-        *.*.*) echo "$v" ;;
-        *.*) echo "$v.0" ;;
-        *) echo "$v.0.0" ;;
-      esac
-      return
-    fi
-  fi
-}
-
-# Enforce Secure Boot disabled for NVIDIA drivers (cannot disable from OS, but can guide)
-check_secure_boot(){
-  if [ "$ENFORCE_SECURE_BOOT_DISABLED" != "true" ]; then
-    return 0
-  fi
-  if ! command -v mokutil >/dev/null 2>&1; then
-    apt update >/dev/null 2>&1 || true
-    apt install -y mokutil >/dev/null 2>&1 || true
-  fi
-  if command -v mokutil >/dev/null 2>&1; then
-    SB_STATE=$(mokutil --sb-state 2>/dev/null | tr 'A-Z' 'a-z')
-    if echo "$SB_STATE" | grep -q "enabled"; then
-      echo -e "\n${ORANGE}╔══════════════════════════════════════════════════════════════╗${NC}"
-      echo -e "${ORANGE}║                   SECURE BOOT IS ENABLED                    ║${NC}"
-      echo -e "${ORANGE}║  Disable in BIOS/UEFI for NVIDIA drivers to load.           ║${NC}"
-      echo -e "${ORANGE}║  Or run: mokutil --disable-validation (confirm on reboot).  ║${NC}"
-      echo -e "${ORANGE}╚══════════════════════════════════════════════════════════════╝${NC}\n"
-      if [ "$ALLOW_SECURE_BOOT" = "true" ]; then
-        log_wait "Continuing with Secure Boot enabled (NVIDIA may fail to load)"
-        return 0
-      fi
-      if [ "$AUTO_DISABLE_SECURE_BOOT" = "true" ]; then
-        log_wait "Scheduling Secure Boot validation disable via MOK (interactive)"
-        mokutil --disable-validation || true
-        echo secureboot_reboot > /tmp/splendor_secureboot_reboot
-      else
-        log_error "Secure Boot must be disabled. Re-run with --auto-disable-secure-boot or disable in BIOS."
-        exit 1
-      fi
-    fi
-  fi
-}
-
 #+-----------------------------------------------------------------------------------------------+
 #|                                                                                                                              |
 #|                                                      FUNCTIONS                                                |
@@ -226,7 +33,6 @@ check_secure_boot(){
 task1(){
   # update and upgrade the server TASK 1
   log_wait "Updating system packages" && progress_bar
-  tidy_apt_sources
   apt update && apt upgrade -y
   
   # Fix system resource limits for blockchain node stability
@@ -349,10 +155,6 @@ task5(){
 task6(){
   # do make all TASK 6 with automatic GPU compilation and quantum cryptography
   log_wait "Building backend with GPU acceleration and quantum cryptography support" && progress_bar
-  
-  # Install GPU dependencies first (before building)
-  install_gpu_dependencies
-  
   cd node_src
   
   # Set CUDA environment for build
@@ -394,29 +196,6 @@ task6(){
     export PQ_CGO_LDFLAGS=""
   fi
   
-  # Preflight: require NVIDIA GPU stack for validator nodes
-  if [ "$1" = "--require-gpu" ] || [ "$2" = "--require-gpu" ] || [ -f "$BASE_DIR/Core-Blockchain/chaindata/.enforce_gpu" ]; then
-    if gpu_is_ready; then
-      # Best-effort summary
-      if command -v nvidia-smi >/dev/null 2>&1; then
-        NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)
-        VRAM=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1)
-        [ -n "$NAME" ] && log_success "GPU detected: $NAME (${VRAM:-?} MB VRAM)"
-      else
-        log_success "GPU detected via kernel/devices (nvidia module or /dev/nvidia present)"
-      fi
-    else
-      status=$?
-      if [ "$status" -eq 2 ]; then
-        log_wait "NVIDIA GPU hardware found but drivers may be inactive; continuing and enabling GPU post-reboot"
-      else
-        log_error "GPU is required but not detected by multiple checks (nvidia-smi, devices, modules)."
-        log_error "If GPU is present, ensure NVIDIA drivers and CUDA are installed and active, then reboot."
-        exit 1
-      fi
-    fi
-  fi
-
   # First, compile CUDA kernels if CUDA is available
   if command -v nvcc >/dev/null 2>&1; then
     log_wait "Compiling CUDA kernels for GPU acceleration"
@@ -426,12 +205,8 @@ task6(){
       log_success "CUDA library compiled successfully"
       log_wait "Building geth with GPU support and proper CUDA linking"
       
-      # Build geth with proper CUDA + optional PQ (liboqs) linking
-      BUILD_TAGS="gpu"
-      if [ -n "$PQ_CGO_CFLAGS" ] && [ -f "/tmp/splendor_liboqs/include/oqs/oqs.h" ]; then
-        BUILD_TAGS="$BUILD_TAGS liboqs"
-      fi
-      if CGO_CFLAGS="-I/usr/local/cuda/include $PQ_CGO_CFLAGS" CGO_LDFLAGS="-L/usr/local/cuda/lib64 -L./common/gpu -lcuda -lcudart -lsplendor_cuda $PQ_CGO_LDFLAGS" go build -tags "$BUILD_TAGS" -o build/bin/geth ./cmd/geth; then
+      # Build geth with proper CUDA + PQ (liboqs) linking
+      if CGO_CFLAGS="-I/usr/local/cuda/include $PQ_CGO_CFLAGS" CGO_LDFLAGS="-L/usr/local/cuda/lib64 -L./common/gpu -lcuda -lcudart -lsplendor_cuda $PQ_CGO_LDFLAGS" go build -tags "gpu" -o build/bin/geth ./cmd/geth; then
         log_success "Geth built successfully with CUDA + PQ (liboqs) support"
         
         # Verify CUDA linking
@@ -451,12 +226,12 @@ task6(){
         go run build/ci.go install ./cmd/geth
       fi
     else
-      log_wait "CUDA compilation failed, building CPU-only geth"
-      go run build/ci.go install ./cmd/geth || true
+      log_wait "CUDA compilation failed, building CPU-only version"
+      go run build/ci.go install ./cmd/geth || make all
     fi
   else
-    log_wait "CUDA not available - building CPU-only geth"
-    go run build/ci.go install ./cmd/geth || true
+    log_wait "CUDA not available - building CPU-only version"
+    make all
   fi
   
   log_success "Backend build completed"
@@ -564,331 +339,36 @@ install_cuda_from_runfile(){
   fi
 }
 
-# Helper: add NVIDIA CUDA repo keyring for exact packages
-ensure_nvidia_repo(){
-  . /etc/os-release
-  case "$VERSION_ID" in
-    24.04) DIST="ubuntu2404" ;;
-    22.04) DIST="ubuntu2204" ;;
-    20.04) DIST="ubuntu2004" ;;
-    *) DIST="ubuntu2204" ;;
-  esac
-  if ! dpkg -l | grep -q cuda-keyring; then
-    log_wait "Adding NVIDIA CUDA repository for $DIST"
-    wget -qO /tmp/cuda-keyring.deb https://developer.download.nvidia.com/compute/cuda/repos/$DIST/x86_64/cuda-keyring_1.1-1_all.deb || true
-    if [ -f /tmp/cuda-keyring.deb ]; then
-      dpkg -i /tmp/cuda-keyring.deb || true
-      apt update || true
-    else
-      log_wait "Could not fetch CUDA keyring; continuing with existing repos"
-    fi
-  fi
-}
-
-# Helper: install target NVIDIA driver version (575.57.08)
-install_target_driver_version(){
-  log_wait "Installing target NVIDIA driver version $TARGET_DRIVER_VERSION"
-  
-  # Try to install exact version first
-  local pkg
-  for pkg in nvidia-driver-575-open nvidia-driver-575; do
-    if apt-cache madison "$pkg" | awk '{print $3}' | grep -q "^${TARGET_DRIVER_VERSION}"; then
-      log_wait "Installing $pkg version ${TARGET_DRIVER_VERSION}"
-      if apt install -y "$pkg=${TARGET_DRIVER_VERSION}" || apt install -y "$pkg=${TARGET_DRIVER_VERSION}-0ubuntu1"; then
-        log_success "Target driver version $TARGET_DRIVER_VERSION installed successfully"
-        DRIVER_SWITCHED=1
-        return
-      fi
-    fi
-  done
-  
-  # If exact version not available, install latest 575 series
-  log_wait "Exact driver ${TARGET_DRIVER_VERSION} not available; installing latest 575 series"
-  if apt install -y nvidia-driver-575-open nvidia-utils-575 || apt install -y nvidia-driver-575 nvidia-utils-575; then
-    log_success "NVIDIA driver 575 series installed successfully"
-    DRIVER_SWITCHED=1
-  else
-    log_error "Failed to install NVIDIA driver 575 series"
-    return 1
-  fi
-}
-
-# Helper: install target CUDA version (12.6.85)
-install_target_cuda_version(){
-  log_wait "Installing target CUDA version $TARGET_CUDA_VERSION"
-  
-  # Use the specific CUDA 12.6.85 installer
-  CUDA_URL="https://developer.download.nvidia.com/compute/cuda/12.6.2/local_installers/cuda_12.6.2_560.35.03_linux.run"
-  CUDA_FILE="cuda_12.6.2_560.35.03_linux.run"
-  
-  # Download CUDA installer if not already present
-  if [ ! -f "/tmp/$CUDA_FILE" ]; then
-    log_wait "Downloading CUDA $TARGET_CUDA_VERSION installer"
-    cd /tmp
-    if wget "$CUDA_URL" -O "$CUDA_FILE"; then
-      chmod +x "$CUDA_FILE"
-      log_success "CUDA installer downloaded successfully"
-    else
-      log_error "Failed to download CUDA installer"
-      return 1
-    fi
-  else
-    log_success "CUDA installer already downloaded"
-  fi
-  
-  # Install CUDA toolkit (skip driver installation if already installed)
-  log_wait "Installing CUDA toolkit $TARGET_CUDA_VERSION (this may take several minutes)"
-  if nvidia-smi >/dev/null 2>&1; then
-    # Driver already installed, install toolkit only
-    if /tmp/$CUDA_FILE --silent --toolkit --override; then
-      log_success "CUDA toolkit $TARGET_CUDA_VERSION installed successfully"
-    else
-      log_error "CUDA toolkit installation failed"
-      return 1
-    fi
-  else
-    # Install both driver and toolkit
-    if /tmp/$CUDA_FILE --silent --driver --toolkit --override; then
-      log_success "CUDA toolkit and driver $TARGET_CUDA_VERSION installed successfully"
-      DRIVER_SWITCHED=1
-    else
-      log_error "CUDA installation failed"
-      return 1
-    fi
-  fi
-  
-  # Verify CUDA installation - check multiple possible paths
-  local cuda_nvcc_paths="/usr/local/cuda/bin/nvcc /usr/local/cuda-*/bin/nvcc"
-  local found_nvcc=""
-  
-  for nvcc_path in $cuda_nvcc_paths; do
-    if [ -f "$nvcc_path" ]; then
-      found_nvcc="$nvcc_path"
-      break
-    fi
-  done
-  
-  if [ -n "$found_nvcc" ]; then
-    CUDA_INSTALLED_VERSION=$($found_nvcc --version | grep "release" | awk '{print $6}' | cut -c2-)
-    log_success "CUDA $CUDA_INSTALLED_VERSION installed and verified successfully at $found_nvcc"
-    
-    # Create symlink if it doesn't exist
-    if [ ! -L "/usr/local/cuda" ] && [ ! -d "/usr/local/cuda" ]; then
-      local cuda_dir=$(dirname $(dirname $found_nvcc))
-      ln -sf "$cuda_dir" /usr/local/cuda
-      log_success "Created symlink /usr/local/cuda -> $cuda_dir"
-    fi
-  else
-    log_error "CUDA installation verification failed - nvcc not found in expected locations"
-    return 1
-  fi
-}
-
-# Helper: install exact NVIDIA driver version if available (legacy function)
-install_driver_exact(){
-  local pkg
-  for pkg in nvidia-driver-575-open nvidia-driver-575; do
-    if apt-cache madison "$pkg" | awk '{print $3}' | grep -q "^${RECOMMENDED_DRIVER_VERSION}"; then
-      log_wait "Installing $pkg version ${RECOMMENDED_DRIVER_VERSION}"
-      apt install -y "$pkg=${RECOMMENDED_DRIVER_VERSION}" || apt install -y "$pkg=${RECOMMENDED_DRIVER_VERSION}-0ubuntu1" || true
-      return
-    fi
-  done
-  # Fallback to latest 575 series
-  log_wait "Exact driver ${RECOMMENDED_DRIVER_VERSION} not found; installing latest 575 series"
-  apt install -y nvidia-driver-575-open nvidia-utils-575 || apt install -y nvidia-driver-575 nvidia-utils-575 || true
-}
-
-# Helper: install OS-recommended NVIDIA driver (safer default)
-install_recommended_driver(){
-  log_wait "Installing OS-recommended NVIDIA driver"
-  apt update || true
-  apt install -y ubuntu-drivers-common || true
-  apt --fix-broken install -y || true
-  local rec_pkg
-  rec_pkg=$(get_recommended_driver_pkg)
-  if [ -n "$rec_pkg" ]; then
-    log_wait "OS recommends: $rec_pkg"
-    apt install -y "$rec_pkg" || {
-      log_wait "Fixing broken dependencies, retrying $rec_pkg"
-      apt --fix-broken install -y || true
-      apt install -y "$rec_pkg" || true
-    }
-  else
-    # Fallback to autoinstall if we couldn't parse recommendation
-    if command -v ubuntu-drivers >/dev/null 2>&1; then
-      ubuntu-drivers autoinstall || true
-    fi
-  fi
-}
-
-# Helper: parse OS-recommended driver package name (prefer -open)
-get_recommended_driver_pkg(){
-  if ! command -v ubuntu-drivers >/dev/null 2>&1; then
-    echo ""
-    return
-  fi
-  local line
-  line=$(ubuntu-drivers devices 2>/dev/null | awk '/recommended/{print; exit}')
-  if echo "$line" | grep -oE 'nvidia-driver-[0-9]+-open' | head -1; then return; fi
-  echo "$line" | grep -oE 'nvidia-driver-[0-9]+' | head -1
-}
-
-# Helper: get currently installed nvidia-driver package
-get_installed_driver_pkg(){
-  dpkg -l | awk '/^ii\s+nvidia-driver-/{print $2; exit}'
-}
-
-# Helper: highest installed NVIDIA driver series as integer (e.g., 560, 575, 580)
-get_installed_driver_series(){
-  local series
-  series=$(dpkg -l | awk '/^ii\s+nvidia-driver-/{print $2}' | sed -E 's/.*nvidia-driver-([0-9]+).*/\1/' | sort -nr | head -1)
-  echo ${series:-0}
-}
-
-# Helper: ensure 580+ series driver is installed (prefer 580-open); purge conflicting series first
-ensure_driver_580_or_recommended(){
-  local target_pkg=""
-  local rec_pkg
-  rec_pkg=$(get_recommended_driver_pkg)
-  # Prefer recommended if it is 58x; otherwise prefer 580-open if available
-  if echo "$rec_pkg" | grep -qE 'nvidia-driver-58[0-9]'; then
-    target_pkg="$rec_pkg"
-  elif apt-cache policy nvidia-driver-580-open | grep -q Candidate; then
-    target_pkg="nvidia-driver-580-open"
-  elif apt-cache policy nvidia-driver-580 | grep -q Candidate; then
-    target_pkg="nvidia-driver-580"
-  else
-    # Fallback to recommended even if not 58x
-    target_pkg="$rec_pkg"
-  fi
-
-  if [ -z "$target_pkg" ]; then
-    log_error "Could not determine a suitable NVIDIA driver package"
-    return 1
-  fi
-
-  log_wait "Installing NVIDIA driver package: $target_pkg (clean purge of conflicting versions)"
-  apt update || true
-  apt --fix-broken install -y || true
-  # Purge any existing driver stacks to avoid dependency tangle
-  apt purge -y 'nvidia-driver-*' 'nvidia-dkms-*' 'nvidia-utils-*' 'libnvidia-*' || true
-  apt autoremove -y || true
-  apt clean || true
-  apt update || true
-  apt --fix-broken install -y || true
-  # Install target
-  if ! apt install -y "$target_pkg"; then
-    log_wait "Fixing dependencies and retrying $target_pkg"
-    apt --fix-broken install -y || true
-    apt install -y "$target_pkg" || true
-  fi
-  # Regenerate boot artifacts
-  update-initramfs -u || true
-  update-grub || true
-  DRIVER_SWITCHED=1
-}
-
-# Helper: switch to OS-recommended driver (purge conflicting, install recommended, regen initramfs)
-switch_to_recommended_driver(){
-  local rec_pkg
-  rec_pkg=$(get_recommended_driver_pkg)
-  if [ -z "$rec_pkg" ]; then
-    log_wait "Could not determine recommended driver; using ubuntu-drivers autoinstall"
-    install_recommended_driver
-    return
-  fi
-  log_wait "Switching to recommended NVIDIA driver: $rec_pkg"
-  apt update || true
-  # Ensure kernel headers and dkms are present
-  apt install -y dkms linux-headers-$(uname -r) || true
-  # Remove existing driver packages to avoid conflicts
-  apt purge -y 'nvidia-driver-*' 'nvidia-dkms-*' 'nvidia-utils-*' 'libnvidia-*' || true
-  apt autoremove -y || true
-  # Install recommended package
-  apt --fix-broken install -y || true
-  apt install -y "$rec_pkg" || {
-    log_wait "Fixing broken dependencies, retrying $rec_pkg"
-    apt --fix-broken install -y || true
-    apt install -y "$rec_pkg" || true
-  }
-  # Regenerate initramfs and grub
-  update-initramfs -u || true
-  update-grub || true
-}
-
-# Helper: fix broken NVIDIA stack favoring recommended package and purging 560 remnants
-fix_broken_nvidia_stack(){
-  apt --fix-broken install -y || true
-  # Purge common leftover 560-series packages to avoid being pulled in again
-  apt purge -y 'nvidia-driver-560*' 'libnvidia-gl-560*' 'libnvidia-compute-560*' 'libnvidia-decode-560*' 'libnvidia-encode-560*' 'libnvidia-fbc1-560*' || true
-  apt autoremove -y || true
-  apt --fix-broken install -y || true
-}
-
-# Helper: install cuDNN runtime and dev packages
-install_cudnn_exact(){
-  log_wait "Installing cuDNN runtime and dev packages"
-  apt install -y libcudnn9 libcudnn9-dev || apt install -y libcudnn9-cuda libcudnn9-cuda-dev || true
-}
-
 install_gpu_dependencies(){
   # Install GPU dependencies automatically for BOTH RPC and VALIDATOR TASK 6A
   log_wait "Installing complete GPU acceleration stack (NVIDIA drivers + CUDA + OpenCL)" && progress_bar
   
   # Update package lists
-  tidy_apt_sources
   apt update
-  
-  # Enforce Secure Boot policy before touching NVIDIA drivers
-  check_secure_boot
   
   # Detect GPU architecture and determine optimal settings
   detect_gpu_architecture
-  ensure_nvidia_repo
   
-  # Clean up any broken NVIDIA deps prior to installs
-  fix_broken_nvidia_stack
-  
-  # Install kernel headers and DKMS for proper module building
-  log_wait "Installing kernel headers and DKMS for NVIDIA module compilation"
-  apt install -y dkms linux-headers-$(uname -r) || true
-  
-  # Driver: skip install if current driver version meets target or is newer
-  DRV_VER=$(get_current_driver_version)
-  if [ -n "$DRV_VER" ]; then
-    if version_ge "$DRV_VER" "$TARGET_DRIVER_VERSION"; then
-      log_success "NVIDIA driver version $DRV_VER ≥ $TARGET_DRIVER_VERSION (target: $TARGET_DRIVER_VERSION). Skipping driver installation"
-      
-      # Even if driver is installed, ensure modules are built for current kernel
-      log_wait "Ensuring NVIDIA modules are built for current kernel $(uname -r)"
-      if ! lsmod | grep -q nvidia; then
-        log_wait "NVIDIA modules not loaded, rebuilding for current kernel"
-        dpkg-reconfigure nvidia-driver-575-open || dpkg-reconfigure nvidia-driver-575 || true
-        
-        # Load NVIDIA modules
-        log_wait "Loading NVIDIA kernel modules"
-        modprobe nvidia || true
-        modprobe nvidia-uvm || true
-        modprobe nvidia-drm || true
-        
-        # Test if nvidia-smi works now
-        if nvidia-smi >/dev/null 2>&1; then
-          log_success "NVIDIA modules loaded successfully"
-        else
-          log_wait "NVIDIA modules will be available after reboot"
-          DRIVER_SWITCHED=1
-        fi
-      else
-        log_success "NVIDIA modules already loaded"
-      fi
-    else
-      log_wait "NVIDIA driver below target (found: $DRV_VER, target: $TARGET_DRIVER_VERSION). Installing target driver version"
-      install_target_driver_version
-    fi
+  # Check if NVIDIA drivers are already installed
+  if nvidia-smi >/dev/null 2>&1; then
+    log_success "NVIDIA drivers already installed and working"
+    CURRENT_DRIVER=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader,nounits | head -1)
+    echo "Current driver version: $CURRENT_DRIVER"
   else
-    log_wait "NVIDIA driver not found. Installing target driver version $TARGET_DRIVER_VERSION"
-    install_target_driver_version
+    log_wait "Installing NVIDIA drivers for $GPU_ARCH architecture"
+    
+    # Install appropriate NVIDIA drivers based on detected architecture
+    case $GPU_ARCH in
+      "Ada Lovelace")
+        apt install -y nvidia-driver-575-open nvidia-utils-575 || apt install -y nvidia-driver-575 nvidia-utils-575
+        ;;
+      "Ampere"|"Turing"|"Professional")
+        apt install -y nvidia-driver-535 nvidia-utils-535
+        ;;
+      *)
+        ubuntu-drivers autoinstall || apt install -y nvidia-driver-535 nvidia-utils-535
+        ;;
+    esac
   fi
   
   # Install OpenCL support FIRST (required for compilation)
@@ -900,22 +380,20 @@ install_gpu_dependencies(){
     apt install -y nvidia-opencl-dev || log_wait "NVIDIA OpenCL will be available after reboot"
   fi
   
-  # CUDA: skip install if version meets target or is newer
-  CUDA_VER_CUR=$(get_current_cuda_version)
-  if [ -n "$CUDA_VER_CUR" ]; then
-    if version_ge "$CUDA_VER_CUR" "$TARGET_CUDA_VERSION"; then
-      log_success "CUDA version $CUDA_VER_CUR ≥ $TARGET_CUDA_VERSION (target: $TARGET_CUDA_VERSION). Skipping CUDA installation"
-    else
-      log_wait "CUDA below target (found $CUDA_VER_CUR, target: $TARGET_CUDA_VERSION). Installing target CUDA version"
-      install_target_cuda_version
+  # Check if CUDA is already installed
+  if command -v nvcc >/dev/null 2>&1; then
+    EXISTING_CUDA=$(nvcc --version | grep "release" | awk '{print $6}' | cut -c2-)
+    log_success "CUDA $EXISTING_CUDA already installed"
+    
+    # Check if installed version matches recommended version
+    if [[ "$EXISTING_CUDA" != "$CUDA_VERSION"* ]]; then
+      log_wait "Upgrading CUDA from $EXISTING_CUDA to $CUDA_VERSION"
+      install_cuda_from_runfile
     fi
   else
-    log_wait "CUDA toolkit not found. Installing target CUDA version $TARGET_CUDA_VERSION"
-    install_target_cuda_version
+    # Install CUDA from official installer
+    install_cuda_from_runfile
   fi
-  
-  # Install cuDNN after CUDA toolkit
-  install_cudnn_exact
   
   # Install additional build tools
   log_wait "Installing additional build tools"
@@ -959,10 +437,6 @@ install_gpu_dependencies(){
     echo -e "\n${GREEN}GPU Information:${NC}"
     nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader
   fi
-  # Mark reboot needed if we switched drivers
-  if [ "${DRIVER_SWITCHED:-0}" = "1" ]; then
-    echo "reboot_required" > /tmp/splendor_gpu_reboot
-  fi
 }
 
 configure_gpu_environment(){
@@ -975,12 +449,12 @@ configure_gpu_environment(){
 # GPU Acceleration Configuration for High-Performance RPC (RTX 4000 SFF Ada - 20GB VRAM)
 ENABLE_GPU=true
 PREFERRED_GPU_TYPE=CUDA
-GPU_MAX_BATCH_SIZE=200000
+GPU_MAX_BATCH_SIZE=160000
 GPU_MAX_MEMORY_USAGE=12884901888
 GPU_MEMORY_FRACTION=0.5
-GPU_HASH_WORKERS=32
-GPU_SIGNATURE_WORKERS=32
-GPU_TX_WORKERS=32
+GPU_HASH_WORKERS=16
+GPU_SIGNATURE_WORKERS=16
+GPU_TX_WORKERS=16
 GPU_ENABLE_PIPELINING=true
 
 # Hybrid Processing Configuration with AI Coordination
@@ -991,7 +465,7 @@ ADAPTIVE_LOAD_BALANCING=true
 PERFORMANCE_MONITORING=true
 MAX_CPU_UTILIZATION=0.85
 MAX_GPU_UTILIZATION=0.95
-THROUGHPUT_TARGET=3000000
+THROUGHPUT_TARGET=2000000
 
 # Memory Management (RTX 4000 SFF Ada - 20GB Total)
 MAX_MEMORY_USAGE=68719476736
@@ -1013,17 +487,16 @@ task6_gpu(){
   # Build GPU acceleration components TASK 6 GPU
   log_wait "Setting up complete GPU acceleration for high-performance RPC" && progress_bar
   
-  # Configure GPU environment (dependencies should already be installed by task6)
+  # Install GPU dependencies automatically
+  install_gpu_dependencies
+  
+  # Configure GPU environment
   configure_gpu_environment
   
   # Check if GPU is available
   if nvidia-smi >/dev/null 2>&1; then
     log_success "NVIDIA GPU detected successfully"
     nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits
-    # If drivers are active now, run strict validation (otherwise validation runs after reboot)
-    if type validate_strict_requirements >/dev/null 2>&1; then
-      validate_strict_requirements || exit 1
-    fi
   else
     log_wait "GPU not detected or drivers need reboot - GPU features will activate after reboot"
   fi
@@ -1214,35 +687,13 @@ displayStatus(){
 }
 
 reboot_countdown(){
-  # If we explicitly switched drivers or scheduled SB change, honor auto reboot
-  if [ -f /tmp/splendor_gpu_reboot ] || [ -f /tmp/splendor_secureboot_reboot ]; then
-    NEED_REBOOT=1
-  else
-    # Determine readiness using robust detection
-    if gpu_is_ready; then
-      echo -e "\n${GREEN}✅ No reboot required - GPU drivers active${NC}"
-      return
-    fi
-    status=$?
-    # Hardware present but drivers likely inactive
-    if [ "$status" -eq 2 ]; then
-      NEED_REBOOT=1
-    else
-      echo -e "\n${GREEN}✅ No reboot required - no NVIDIA hardware detected or already handled${NC}"
-      return
-    fi
-  fi
-  # Respect AUTO_REBOOT
-  if [ "$AUTO_REBOOT" != "true" ]; then
-    echo -e "\n${ORANGE}⚠️  Reboot recommended to finalize driver changes${NC}"
-    return
-  fi
-  # At this point, we intend to reboot automatically
-  echo -e "\n${ORANGE}╔══════════════════════════════════════════════════════════════╗${NC}"
-  echo -e "${ORANGE}║                    REBOOT REQUIRED                          ║${NC}"
-  echo -e "${ORANGE}║                                                              ║${NC}"
-  echo -e "${ORANGE}║  NVIDIA GPU drivers have been installed and require a       ║${NC}"
-  echo -e "${ORANGE}║  system reboot to activate GPU acceleration features.       ║${NC}"
+  # Check if GPU drivers were installed and reboot is needed
+  if lspci | grep -i nvidia >/dev/null 2>&1 && ! nvidia-smi >/dev/null 2>&1; then
+    echo -e "\n${ORANGE}╔══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${ORANGE}║                    REBOOT REQUIRED                          ║${NC}"
+    echo -e "${ORANGE}║                                                              ║${NC}"
+    echo -e "${ORANGE}║  NVIDIA GPU drivers have been installed and require a       ║${NC}"
+    echo -e "${ORANGE}║  system reboot to activate GPU acceleration features.       ║${NC}"
     echo -e "${ORANGE}║                                                              ║${NC}"
     echo -e "${ORANGE}║  After reboot, the node will automatically start via        ║${NC}"
     echo -e "${ORANGE}║  the configured autostart in /etc/profile                   ║${NC}"
@@ -1261,7 +712,10 @@ reboot_countdown(){
     sync
     
     # Reboot the system
-  reboot
+    reboot
+  else
+    echo -e "\n${GREEN}✅ No reboot required - GPU drivers already active or no GPU detected${NC}"
+  fi
 }
 
 
@@ -1313,10 +767,6 @@ createRpc(){
 }
 
 createValidator(){
-  # Enforce GPU requirement for validators (preflight check in task6)
-  mkdir -p "$BASE_DIR/Core-Blockchain/chaindata"
-  touch "$BASE_DIR/Core-Blockchain/chaindata/.enforce_gpu"
-
   task1
   task2
   task3
@@ -1859,27 +1309,21 @@ verify_installation(){
     VERIFICATION_PASSED=false
   fi
   
-  # Check GPU drivers with proper status tracking
-  GPU_DRIVERS_ACTIVE=false
+  # Check GPU drivers
   if nvidia-smi >/dev/null 2>&1; then
     GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader,nounits | head -1)
     GPU_MEMORY=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | head -1)
     log_success "✅ GPU drivers active: $GPU_NAME ($GPU_MEMORY MB)"
-    GPU_DRIVERS_ACTIVE=true
   else
     log_wait "⚠️  GPU drivers installed but require reboot to activate"
-    GPU_DRIVERS_ACTIVE=false
   fi
   
-  # Check CUDA installation with proper status tracking
-  CUDA_ACTIVE=false
+  # Check CUDA installation
   if command -v nvcc >/dev/null 2>&1; then
     CUDA_VERSION=$(nvcc --version | grep "release" | awk '{print $6}' | cut -c2-)
     log_success "✅ CUDA installed: $CUDA_VERSION"
-    CUDA_ACTIVE=true
   else
     log_wait "⚠️  CUDA installed but requires reboot to activate"
-    CUDA_ACTIVE=false
   fi
   
   # Check vLLM installation
@@ -1937,31 +1381,18 @@ verify_installation(){
     VERIFICATION_PASSED=false
   fi
   
-  # Final verification result with accurate GPU status
+  # Final verification result
   echo -e "\n${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
   if [ "$VERIFICATION_PASSED" = true ]; then
-    if [ "$GPU_DRIVERS_ACTIVE" = true ] && [ "$CUDA_ACTIVE" = true ]; then
-      echo -e "${GREEN}║                    ✅ VERIFICATION PASSED                    ║${NC}"
-      echo -e "${GREEN}║                                                              ║${NC}"
-      echo -e "${GREEN}║  All components installed successfully!                     ║${NC}"
-      echo -e "${GREEN}║  • Go + Geth blockchain node                                ║${NC}"
-      echo -e "${GREEN}║  • GPU acceleration (CUDA + OpenCL) - ACTIVE               ║${NC}"
-      echo -e "${GREEN}║  • AI system (vLLM + MobileLLM-R1)                        ║${NC}"
-      echo -e "${GREEN}║  • Node.js ecosystem (yarn + pm2)                          ║${NC}"
-      echo -e "${GREEN}║                                                              ║${NC}"
-      echo -e "${GREEN}║  Ready to start with: ./node-start.sh                      ║${NC}"
-    else
-      echo -e "${ORANGE}║                    ⚠️  VERIFICATION PASSED (REBOOT NEEDED)  ║${NC}"
-      echo -e "${ORANGE}║                                                              ║${NC}"
-      echo -e "${ORANGE}║  Core components installed successfully!                    ║${NC}"
-      echo -e "${ORANGE}║  • Go + Geth blockchain node                                ║${NC}"
-      echo -e "${ORANGE}║  • GPU acceleration (CUDA + OpenCL) - NEEDS REBOOT         ║${NC}"
-      echo -e "${ORANGE}║  • AI system (vLLM + MobileLLM-R1)                        ║${NC}"
-      echo -e "${ORANGE}║  • Node.js ecosystem (yarn + pm2)                          ║${NC}"
-      echo -e "${ORANGE}║                                                              ║${NC}"
-      echo -e "${ORANGE}║  GPU features will activate after reboot                   ║${NC}"
-      echo -e "${ORANGE}║  Ready to start with: ./node-start.sh (after reboot)      ║${NC}"
-    fi
+    echo -e "${GREEN}║                    ✅ VERIFICATION PASSED                    ║${NC}"
+    echo -e "${GREEN}║                                                              ║${NC}"
+    echo -e "${GREEN}║  All components installed successfully!                     ║${NC}"
+    echo -e "${GREEN}║  • Go + Geth blockchain node                                ║${NC}"
+    echo -e "${GREEN}║  • GPU acceleration (CUDA + OpenCL)                        ║${NC}"
+    echo -e "${GREEN}║  • AI system (vLLM + MobileLLM-R1)                        ║${NC}"
+    echo -e "${GREEN}║  • Node.js ecosystem (yarn + pm2)                          ║${NC}"
+    echo -e "${GREEN}║                                                              ║${NC}"
+    echo -e "${GREEN}║  Ready to start with: ./node-start.sh                      ║${NC}"
   else
     echo -e "${RED}║                    ❌ VERIFICATION FAILED                    ║${NC}"
     echo -e "${RED}║                                                              ║${NC}"
@@ -2093,12 +1524,6 @@ usage() {
   echo -e "\t\t --rpc      Specify to create RPC node"
   echo -e "\t\t --validator  <whole number>     Specify number of validator node to create"
   echo -e "		 --nopk     Skip validator account import/creation (skip task8)"
-  echo -e "\t\t --keep-existing-drivers   Do not enforce/replace NVIDIA driver version (default)"
-  echo -e "\t\t --enforce-driver-version  Install pinned NVIDIA driver version if different"
-  echo -e "\t\t --switch-to-recommended-driver  Purge mismatched driver and install OS-recommended (e.g., 580-open)"
-  echo -e "\t\t --allow-secure-boot       Allow Secure Boot (not recommended; NVIDIA may fail)"
-  echo -e "\t\t --auto-disable-secure-boot  Run 'mokutil --disable-validation' and reboot"
-  echo -e "\t\t --no-auto-reboot         Do not auto reboot; only warn if needed"
 }
 
 
@@ -2165,31 +1590,6 @@ handle_options() {
       # skip validator account setup (task8)
       --nopk)
       NOPK=true
-      ;;
-
-      --keep-existing-drivers)
-      ENFORCE_DRIVER_VERSION=false
-      ;;
-
-      --enforce-driver-version)
-      ENFORCE_DRIVER_VERSION=true
-      ;;
-
-      --no-auto-reboot)
-      AUTO_REBOOT=false
-      ;;
-
-      --switch-to-recommended-driver)
-      ENFORCE_RECOMMENDED_DRIVER=true
-      ;;
-
-      --allow-secure-boot)
-      ALLOW_SECURE_BOOT=true
-      ENFORCE_SECURE_BOOT_DISABLED=false
-      ;;
-
-      --auto-disable-secure-boot)
-      AUTO_DISABLE_SECURE_BOOT=true
       ;;
 
 

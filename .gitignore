@@ -192,4 +192,3 @@ nohup.out
 # Proof artifacts (evidence - keep in repo for verification)
 # Large proof files excluded due to GitHub limits - exclude entire proofs directory
 proofs/
-test-transaction.js

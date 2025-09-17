@@ -19,8 +19,6 @@ package ethapi
 import (
 	"context"
 	"time"
-    "os"
-    "strconv"
 
 	"github.com/ethereum/go-ethereum/common/gpu"
 	"github.com/ethereum/go-ethereum/common/hybrid"
@@ -359,18 +357,17 @@ func (api *GPUAccelerationAPI) GetRealTimeGPUMonitoring(ctx context.Context) (ma
 	hybridProcessor := hybrid.GetGlobalHybridProcessor()
 	if hybridProcessor != nil {
 		hybridStats := hybridProcessor.GetStats()
-        target := parseEnvUint("THROUGHPUT_TARGET", 3000000)
-        monitoring["hybrid_realtime"] = map[string]interface{}{
-            "current_tps":            hybridStats.CurrentTPS,
-            "target_tps":             target,
-            "tps_efficiency_percent": float64(hybridStats.CurrentTPS) / float64(target) * 100,
-            "cpu_utilization":        hybridStats.CPUUtilization * 100,
-            "gpu_utilization":        hybridStats.GPUUtilization * 100,
-            "load_balance_ratio":     hybridStats.LoadBalancingRatio * 100,
-            "avg_latency_ms":         float64(hybridStats.AvgLatency.Milliseconds()),
-            "memory_usage_gb":        float64(hybridStats.MemoryUsage) / (1024 * 1024 * 1024),
-            "gpu_memory_usage_gb":    float64(hybridStats.GPUMemoryUsage) / (1024 * 1024 * 1024),
-        }
+		monitoring["hybrid_realtime"] = map[string]interface{}{
+			"current_tps":            hybridStats.CurrentTPS,
+			"target_tps":             2000000, // 2M TPS target
+			"tps_efficiency_percent": float64(hybridStats.CurrentTPS) / 2000000.0 * 100,
+			"cpu_utilization":        hybridStats.CPUUtilization * 100,
+			"gpu_utilization":        hybridStats.GPUUtilization * 100,
+			"load_balance_ratio":     hybridStats.LoadBalancingRatio * 100,
+			"avg_latency_ms":         float64(hybridStats.AvgLatency.Milliseconds()),
+			"memory_usage_gb":        float64(hybridStats.MemoryUsage) / (1024 * 1024 * 1024),
+			"gpu_memory_usage_gb":    float64(hybridStats.GPUMemoryUsage) / (1024 * 1024 * 1024),
+		}
 	}
 	
 	// Transaction Pool Real-time Status
@@ -411,14 +408,14 @@ func (api *GPUAccelerationAPI) GetTPSMonitoring(ctx context.Context) (map[string
 		}
 		
 		tpsData["performance_targets"] = map[string]interface{}{
-				"target_sustained_tps":  1000000,  // 1M sustained
-				"target_peak_tps":       3000000, // 3M peak
+			"target_sustained_tps":  500000,  // 500K sustained
+			"target_peak_tps":       2000000, // 2M peak
 			"target_latency_ms":     25,      // 25ms target
 			"target_gpu_util":       95,      // 95% GPU utilization
 		}
 		
 		tpsData["performance_analysis"] = map[string]interface{}{
-				"tps_vs_target_percent":     float64(hybridStats.CurrentTPS) / 1000000.0 * 100,
+			"tps_vs_target_percent":     float64(hybridStats.CurrentTPS) / 500000.0 * 100,
 			"latency_vs_target_percent": float64(hybridStats.AvgLatency.Milliseconds()) / 25.0 * 100,
 			"gpu_util_vs_target":        hybridStats.GPUUtilization / 0.95 * 100,
 			"overall_efficiency":        calculateOverallEfficiency(hybridStats),
@@ -532,15 +529,6 @@ func estimateTxPoolUsage() float64 {
 	return 50000.0 // Placeholder - 50K transactions
 }
 
-func parseEnvUint(name string, def uint64) uint64 {
-    if v := os.Getenv(name); v != "" {
-        if n, err := strconv.ParseUint(v, 10, 64); err == nil {
-            return n
-        }
-    }
-    return def
-}
-
 func detectBottlenecks(monitoring map[string]interface{}) string {
 	// Analyze monitoring data to detect bottlenecks
 	if hybridData, ok := monitoring["hybrid_realtime"].(map[string]interface{}); ok {
@@ -550,13 +538,9 @@ func detectBottlenecks(monitoring map[string]interface{}) string {
 		if gpuUtil, ok := hybridData["gpu_utilization"].(float64); ok && gpuUtil > 95 {
 			return "GPU_BOTTLENECK"
 		}
-		if tps, ok := hybridData["current_tps"].(uint64); ok {
-            target := parseEnvUint("THROUGHPUT_TARGET", 3000000)
-            // Consider TPS a bottleneck when below 10% of target
-            if tps < target/10 {
-                return "TPS_BOTTLENECK"
-            }
-        }
+		if tps, ok := hybridData["current_tps"].(uint64); ok && tps < 100000 {
+			return "TPS_BOTTLENECK"
+		}
 	}
 	return "NONE"
 }
@@ -573,10 +557,7 @@ func calculateScalingHeadroom(monitoring map[string]interface{}) float64 {
 	// Calculate how much more the system can scale
 	if hybridData, ok := monitoring["hybrid_realtime"].(map[string]interface{}); ok {
 		if tps, ok := hybridData["current_tps"].(uint64); ok {
-            maxTPS := float64(parseEnvUint("THROUGHPUT_TARGET", 3000000))
-			if maxTPS <= 0 {
-				return 100.0
-			}
+			maxTPS := 2000000.0 // 2M TPS target
 			return (maxTPS - float64(tps)) / maxTPS * 100
 		}
 	}
@@ -599,9 +580,7 @@ func getRecommendedAction(monitoring map[string]interface{}) string {
 
 func calculateOverallEfficiency(stats hybrid.HybridStats) float64 {
 	// Calculate overall system efficiency
-    maxTPS := float64(parseEnvUint("THROUGHPUT_TARGET", 3000000))
-    if maxTPS <= 0 { maxTPS = 3000000.0 }
-	tpsEfficiency := float64(stats.CurrentTPS) / maxTPS // vs target TPS
+	tpsEfficiency := float64(stats.CurrentTPS) / 2000000.0 // vs 2M TPS target
 	latencyEfficiency := 25.0 / float64(stats.AvgLatency.Milliseconds()) // vs 25ms target
 	utilizationEfficiency := (stats.CPUUtilization + stats.GPUUtilization) / 2.0
 	

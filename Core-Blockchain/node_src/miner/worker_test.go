@@ -20,14 +20,12 @@ package miner
 import (
 	"math/big"
 	"math/rand"
-	"os"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hybrid"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/clique"
 	"github.com/ethereum/go-ethereum/consensus/ethash"
@@ -522,87 +520,5 @@ func testAdjustInterval(t *testing.T, chainConfig *params.ChainConfig, engine co
 	case <-progress:
 	case <-time.NewTimer(time.Second).C:
 		t.Error("interval reset timeout")
-	}
-}
-
-func TestWorkerRespectsHybridConfigWithoutEnv(t *testing.T) {
-	prevTarget, targetSet := os.LookupEnv("THROUGHPUT_TARGET")
-	if targetSet {
-		t.Cleanup(func() {
-			os.Setenv("THROUGHPUT_TARGET", prevTarget)
-		})
-	} else {
-		t.Cleanup(func() {
-			os.Unsetenv("THROUGHPUT_TARGET")
-		})
-	}
-	os.Unsetenv("THROUGHPUT_TARGET")
-
-	prevMaxBatch, maxSet := os.LookupEnv("GPU_MAX_BATCH_SIZE")
-	if maxSet {
-		t.Cleanup(func() {
-			os.Setenv("GPU_MAX_BATCH_SIZE", prevMaxBatch)
-		})
-	} else {
-		t.Cleanup(func() {
-			os.Unsetenv("GPU_MAX_BATCH_SIZE")
-		})
-	}
-	os.Unsetenv("GPU_MAX_BATCH_SIZE")
-
-	prevHybrid := hybrid.GetGlobalHybridProcessor()
-	if prevHybrid != nil {
-		prevConfig := prevHybrid.GetConfig()
-		t.Cleanup(func() {
-			if err := hybrid.InitGlobalHybridProcessor(prevConfig); err != nil {
-				t.Errorf("failed to restore hybrid processor: %v", err)
-			}
-		})
-	} else {
-		t.Cleanup(func() {
-			if err := hybrid.CloseGlobalHybridProcessor(); err != nil {
-				t.Errorf("failed to reset hybrid processor: %v", err)
-			}
-		})
-	}
-
-	const expectedTPS = uint64(9000000)
-	const expectedMaxBatch = 1200000
-
-	customConfig := hybrid.DefaultHybridConfig()
-	customConfig.ThroughputTarget = expectedTPS
-	if customConfig.GPUConfig != nil {
-		customConfig.GPUConfig.MaxBatchSize = expectedMaxBatch
-	}
-
-	if err := hybrid.InitGlobalHybridProcessor(customConfig); err != nil {
-		t.Fatalf("failed to initialize hybrid processor: %v", err)
-	}
-
-	engine := ethash.NewFaker()
-	defer engine.Close()
-
-	chainConfig := new(params.ChainConfig)
-	*chainConfig = *params.AllEthashProtocolChanges
-
-	w, backend := newTestWorker(t, chainConfig, engine, rawdb.NewMemoryDatabase(), 0)
-	defer backend.chain.Stop()
-	defer w.close()
-
-	if w.hybridProcessor == nil {
-		t.Fatal("expected hybrid processor to be wired for worker")
-	}
-	if w.hybridThroughputTarget != expectedTPS {
-		t.Fatalf("hybrid throughput target mismatch: have %d want %d", w.hybridThroughputTarget, expectedTPS)
-	}
-	if w.hybridMaxBatchSize != expectedMaxBatch {
-		t.Fatalf("hybrid max batch size mismatch: have %d want %d", w.hybridMaxBatchSize, expectedMaxBatch)
-	}
-
-	// Force the adaptive algorithm to request more than the configured max batch size.
-	w.batchThreshold = 900000
-	batchSize := w.calculateOptimalBatchSize()
-	if batchSize != expectedMaxBatch {
-		t.Fatalf("expected batch size to honor hybrid max batch size, got %d want %d", batchSize, expectedMaxBatch)
 	}
 }

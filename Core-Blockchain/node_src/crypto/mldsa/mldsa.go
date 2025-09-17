@@ -1,5 +1,5 @@
-//go:build !cgo || !liboqs
-// +build !cgo,!liboqs
+//go:build !cgo || no_liboqs
+// +build !cgo no_liboqs
 
 // Copyright 2024 The Splendor Authors
 // This file implements ML-DSA (Dilithium) signature verification for quantum resistance

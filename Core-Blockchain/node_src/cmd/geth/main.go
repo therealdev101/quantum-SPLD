@@ -511,17 +511,16 @@ func initializeGPUAcceleration(ctx *cli.Context) {
 		PerformanceMonitoring: getEnvBool("PERFORMANCE_MONITORING", true),
 		MaxCPUUtilization:     getEnvFloat("MAX_CPU_UTILIZATION", 0.85),
 		MaxGPUUtilization:     getEnvFloat("MAX_GPU_UTILIZATION", 0.95),
-        // Align default throughput target with miner and docs (3M TPS)
-        ThroughputTarget:      getEnvUint64("THROUGHPUT_TARGET", 3000000),
-        GPUConfig: &gpu.GPUConfig{
-            PreferredGPUType: gpuType,
-            MaxBatchSize:     getEnvInt("GPU_MAX_BATCH_SIZE", 200000),
-            MaxMemoryUsage:   getEnvUint64("GPU_MAX_MEMORY_USAGE", 17179869184), // 16GB default
-            HashWorkers:      getEnvInt("GPU_HASH_WORKERS", 32),
-            SignatureWorkers: getEnvInt("GPU_SIGNATURE_WORKERS", 32),
-            TxWorkers:        getEnvInt("GPU_TX_WORKERS", 32),
-            EnablePipelining: getEnvBool("GPU_ENABLE_PIPELINING", true),
-        },
+		ThroughputTarget:      getEnvUint64("THROUGHPUT_TARGET", 8000000),
+		GPUConfig: &gpu.GPUConfig{
+			PreferredGPUType: gpuType,
+			MaxBatchSize:     getEnvInt("GPU_MAX_BATCH_SIZE", 80000),
+			MaxMemoryUsage:   getEnvUint64("GPU_MAX_MEMORY_USAGE", 17179869184), // 16GB default
+			HashWorkers:      getEnvInt("GPU_HASH_WORKERS", 24),
+			SignatureWorkers: getEnvInt("GPU_SIGNATURE_WORKERS", 24),
+			TxWorkers:        getEnvInt("GPU_TX_WORKERS", 24),
+			EnablePipelining: getEnvBool("GPU_ENABLE_PIPELINING", true),
+		},
 	}
 
 	// Initialize global hybrid processor
@@ -572,17 +571,12 @@ func initializeGPUAcceleration(ctx *cli.Context) {
 		log.Info("AI load balancer disabled by configuration")
 	}
 
-    log.Info("GPU acceleration initialized successfully",
-        "gpuThreshold", hybridConfig.GPUThreshold,
-        "targetTPS", hybridConfig.ThroughputTarget,
-        "gpuType", hybridConfig.GPUConfig.PreferredGPUType,
-        "maxBatch", hybridConfig.GPUConfig.MaxBatchSize,
-        "hashWorkers", hybridConfig.GPUConfig.HashWorkers,
-        "sigWorkers", hybridConfig.GPUConfig.SignatureWorkers,
-        "txWorkers", hybridConfig.GPUConfig.TxWorkers,
-        "maxGPUMemBytes", hybridConfig.GPUConfig.MaxMemoryUsage,
-        "pipelining", hybridConfig.GPUConfig.EnablePipelining,
-    )
+	log.Info("GPU acceleration initialized successfully",
+		"gpuThreshold", hybridConfig.GPUThreshold,
+		"targetTPS", hybridConfig.ThroughputTarget,
+		"gpuType", hybridConfig.GPUConfig.PreferredGPUType,
+		"maxBatch", hybridConfig.GPUConfig.MaxBatchSize,
+	)
 }
 
 // unlockAccounts unlocks any account specifically requested.

@@ -1,5 +1,5 @@
-//go:build cgo && liboqs
-// +build cgo,liboqs
+//go:build cgo && !no_liboqs
+// +build cgo,!no_liboqs
 
 // Shared ML-DSA constants, parameters, and validation for CGO-enabled builds
 // This complements mldsa_cgo.go. The fallback implementation with build tag

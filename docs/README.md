@@ -6,7 +6,8 @@ Welcome to the comprehensive documentation for Splendor Blockchain V4 - a unifie
 
 ### 🚀 Getting Started
 - **[Quick Start Guide](01-GETTING_STARTED.md)** - Get up and running quickly
-- Installation and configuration guidance is included in the Quick Start and the unified spec for now.
+- **[Installation Guide](02-INSTALLATION.md)** - Detailed setup instructions
+- **[Configuration Guide](03-CONFIGURATION.md)** - Node configuration and tuning
 
 ### 🏗️ Core Architecture
 - **[Unified Architecture Specification](SPLENDOR_UNIFIED_QUANTUM_X402_GPU_TPS_CONSENSUS.md)** - Complete technical specification
@@ -22,11 +23,11 @@ Welcome to the comprehensive documentation for Splendor Blockchain V4 - a unifie
 
 ### ⚡ GPU Acceleration
 - **[GPU Acceleration Guide](09-GPU_ACCELERATION.md)** - CUDA/OpenCL setup and optimization
-  - Performance tuning is covered within this guide and the unified spec.
+- **[Performance Optimization](10-PERFORMANCE.md)** - Tuning for maximum throughput
 
 ### 🔗 Network & Deployment
 - **[Validator Guide](11-VALIDATOR_GUIDE.md)** - Running validator nodes
-- **[RPC Node Setup](12-RPC_SETUP_GUIDE.md)** - Setting up RPC nodes
+- **[RPC Node Setup](12-RPC_SETUP.md)** - Setting up RPC nodes
 - **[Deployment Guide](13-DEPLOYMENT.md)** - Production deployment
 
 ### 🛠️ Development
@@ -36,7 +37,7 @@ Welcome to the comprehensive documentation for Splendor Blockchain V4 - a unifie
 
 ### 🔧 Operations
 - **[Troubleshooting](17-TROUBLESHOOTING.md)** - Common issues and solutions
-- Monitoring and telemetry are addressed in GPU Acceleration and Deployment docs.
+- **[Monitoring](18-MONITORING.md)** - Performance monitoring and alerting
 - **[Changelog](19-CHANGELOG.md)** - Version history and changes
 
 ### 📋 Reference
@@ -47,8 +48,8 @@ Welcome to the comprehensive documentation for Splendor Blockchain V4 - a unifie
 
 ### For New Users
 1. Start with [Quick Start Guide](01-GETTING_STARTED.md)
-2. Review the [Unified Architecture Specification](SPLENDOR_UNIFIED_QUANTUM_X402_GPU_TPS_CONSENSUS.md) for deeper context
-3. Use [RPC Node Setup](12-RPC_SETUP_GUIDE.md) and [Deployment Guide](13-DEPLOYMENT.md) as needed
+2. Follow [Installation Guide](02-INSTALLATION.md)
+3. Configure your node with [Configuration Guide](03-CONFIGURATION.md)
 
 ### For Developers
 1. Review [Unified Architecture Specification](SPLENDOR_UNIFIED_QUANTUM_X402_GPU_TPS_CONSENSUS.md)
@@ -58,12 +59,12 @@ Welcome to the comprehensive documentation for Splendor Blockchain V4 - a unifie
 ### For Validators
 1. Read [Validator Guide](11-VALIDATOR_GUIDE.md)
 2. Follow [Deployment Guide](13-DEPLOYMENT.md)
-3. Use GPU and RPC tools for monitoring
+3. Set up [Monitoring](18-MONITORING.md)
 
 ### For High Performance
 1. Configure [GPU Acceleration](09-GPU_ACCELERATION.md)
-2. Apply tuning from the unified spec
-3. Monitor via `gpu_*` RPC and node metrics
+2. Apply [Performance Optimization](10-PERFORMANCE.md)
+3. Monitor with [Performance Monitoring](18-MONITORING.md)
 
 ## 🔍 Key Features
 

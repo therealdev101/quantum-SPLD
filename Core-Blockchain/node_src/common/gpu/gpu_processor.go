@@ -1,4 +1,4 @@
-//go:build cgo && gpu
+ //go:build cgo && gpu
 // +build cgo,gpu
 
 package gpu
@@ -18,24 +18,53 @@ import (
 )
 
 /*
-#cgo CFLAGS: -I${SRCDIR}/native
+#cgo LDFLAGS: -L${SRCDIR} -lcuda_kernels -lOpenCL -L/usr/local/cuda/lib64 -lcudart -Wl,-rpath,${SRCDIR} -Wl,-rpath,/usr/local/cuda/lib64
 
 #include <stdlib.h>
 #include <string.h>
 
-// CUDA helper entry points implemented in native/cuda_kernels.cu
+// CUDA function declarations (implemented in cuda_kernels.cu)
 int cuda_init_device();
-int cuda_process_transactions(void* txs, void* lengths, int count, void* results);
-int cuda_process_hashes(void* hashes, void* lengths, int count, void* results);
+int cuda_process_transactions(void* txs, int count, void* results);
+int cuda_process_hashes(void* hashes, int count, void* results);
 int cuda_verify_signatures(void* sigs, void* msgs, void* keys, int count, void* results);
 void cuda_cleanup();
 
-// OpenCL helper entry points implemented in native/opencl_kernels.c
+// CUDA function declarations (stubs for now - can be replaced with real implementations)
+int initCUDA();
+int processTxBatchCUDA(void* txData, int txCount, void* results);
+int processHashesCUDA(void* hashes, int count, void* results);
+int verifySignaturesCUDA(void* signatures, int count, void* results);
+void cleanupCUDA();
+
+// OpenCL function declarations (implemented in opencl_kernels.c)
 int initOpenCL();
-int processTxBatchOpenCL(void* txData, void* lengths, int txCount, void* results);
-int processHashesOpenCL(void* hashes, void* lengths, int count, void* results);
-int verifySignaturesOpenCL(void* signatures, void* messages, void* keys, int count, void* results);
+int processTxBatchOpenCL(void* txData, int txCount, void* results);
+int processHashesOpenCL(void* hashes, int count, void* results);
+int verifySignaturesOpenCL(void* signatures, int count, void* results);
 void cleanupOpenCL();
+
+// Working stub implementations for CUDA (can be replaced when CUDA is properly configured)
+int initCUDA() { 
+    // Return -1 to indicate CUDA not available, system will fall back to OpenCL or CPU
+    return -1; 
+}
+
+int processHashesCUDA(void* hashes, int count, void* results) { 
+    return -1; // Not implemented, will fall back to OpenCL or CPU
+}
+
+int verifySignaturesCUDA(void* signatures, int count, void* results) {
+    return -1; // Not implemented, will fall back to OpenCL or CPU
+}
+
+int processTxBatchCUDA(void* txData, int txCount, void* results) { 
+    return -1; // Not implemented, will fall back to OpenCL or CPU
+}
+
+void cleanupCUDA() { 
+    // No-op for stub implementation
+}
 */
 import "C"
 
@@ -50,16 +79,16 @@ const (
 
 // GPUProcessor provides GPU-accelerated blockchain operations
 type GPUProcessor struct {
-	gpuType        GPUType
-	deviceCount    int
-	maxBatchSize   int
-	maxMemoryUsage uint64
-
+	gpuType         GPUType
+	deviceCount     int
+	maxBatchSize    int
+	maxMemoryUsage  uint64
+	
 	// Processing pools
-	hashPool      chan *HashBatch
-	signaturePool chan *SignatureBatch
-	txPool        chan *TransactionBatch
-
+	hashPool        chan *HashBatch
+	signaturePool   chan *SignatureBatch
+	txPool          chan *TransactionBatch
+	
 	// Statistics
 	mu              sync.RWMutex
 	processedHashes uint64
@@ -68,16 +97,16 @@ type GPUProcessor struct {
 	avgHashTime     time.Duration
 	avgSigTime      time.Duration
 	avgTxTime       time.Duration
-
+	
 	// Shutdown coordination
-	ctx    context.Context
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
-
+	ctx             context.Context
+	cancel          context.CancelFunc
+	wg              sync.WaitGroup
+	
 	// Memory management
-	memoryPool   sync.Pool
-	cudaStreams  []unsafe.Pointer
-	openclQueues []unsafe.Pointer
+	memoryPool      sync.Pool
+	cudaStreams     []unsafe.Pointer
+	openclQueues    []unsafe.Pointer
 }
 
 // GPUConfig holds configuration for GPU processing
@@ -95,12 +124,12 @@ type GPUConfig struct {
 // Balanced for blockchain processing + MobileLLM-R1 AI model
 func DefaultGPUConfig() *GPUConfig {
 	return &GPUConfig{
-		PreferredGPUType: GPUTypeOpenCL,           // Prefer OpenCL for RTX 4000 SFF Ada
-		MaxBatchSize:     800000,                  // 4x increase - 800K batches (reserve GPU for AI)
+		PreferredGPUType: GPUTypeOpenCL, // Prefer OpenCL for RTX 4000 SFF Ada
+		MaxBatchSize:     800000,        // 4x increase - 800K batches (reserve GPU for AI)
 		MaxMemoryUsage:   14 * 1024 * 1024 * 1024, // 14GB GPU memory (6GB for MobileLLM-R1 + system)
-		HashWorkers:      80,                      // 80 workers - balance with AI workload
-		SignatureWorkers: 80,                      // 80 workers - balance with AI workload
-		TxWorkers:        80,                      // 80 workers - balance with AI workload
+		HashWorkers:      80,            // 80 workers - balance with AI workload
+		SignatureWorkers: 80,            // 80 workers - balance with AI workload  
+		TxWorkers:        80,            // 80 workers - balance with AI workload
 		EnablePipelining: true,
 	}
 }
@@ -142,9 +171,9 @@ func NewGPUProcessor(config *GPUConfig) (*GPUProcessor, error) {
 	if config == nil {
 		config = DefaultGPUConfig()
 	}
-
+	
 	ctx, cancel := context.WithCancel(context.Background())
-
+	
 	processor := &GPUProcessor{
 		maxBatchSize:   config.MaxBatchSize,
 		maxMemoryUsage: config.MaxMemoryUsage,
@@ -154,29 +183,29 @@ func NewGPUProcessor(config *GPUConfig) (*GPUProcessor, error) {
 		signaturePool:  make(chan *SignatureBatch, 100),
 		txPool:         make(chan *TransactionBatch, 100),
 	}
-
+	
 	// Initialize memory pool
 	processor.memoryPool = sync.Pool{
 		New: func() interface{} {
 			return make([]byte, config.MaxBatchSize*256) // 256 bytes per item
 		},
 	}
-
+	
 	// Try to initialize GPU
 	if err := processor.initializeGPU(config.PreferredGPUType); err != nil {
 		log.Warn("GPU initialization failed, falling back to CPU", "error", err)
 		processor.gpuType = GPUTypeNone
 	}
-
+	
 	// Start worker goroutines
 	processor.startWorkers(config)
-
-	log.Info("GPU processor initialized",
+	
+	log.Info("GPU processor initialized", 
 		"type", processor.gpuType,
 		"deviceCount", processor.deviceCount,
 		"maxBatchSize", processor.maxBatchSize,
 	)
-
+	
 	return processor, nil
 }
 
@@ -191,7 +220,7 @@ func (p *GPUProcessor) initializeGPU(preferredType GPUType) error {
 			return nil
 		}
 	}
-
+	
 	// Try OpenCL if CUDA failed or if preferred
 	if preferredType == GPUTypeOpenCL || preferredType == GPUTypeNone {
 		if result := C.initOpenCL(); result > 0 {
@@ -201,7 +230,7 @@ func (p *GPUProcessor) initializeGPU(preferredType GPUType) error {
 			return nil
 		}
 	}
-
+	
 	return errors.New("no GPU acceleration available")
 }
 
@@ -212,13 +241,13 @@ func (p *GPUProcessor) startWorkers(config *GPUConfig) {
 		p.wg.Add(1)
 		go p.hashWorker()
 	}
-
+	
 	// Signature verification workers
 	for i := 0; i < config.SignatureWorkers; i++ {
 		p.wg.Add(1)
 		go p.signatureWorker()
 	}
-
+	
 	// Transaction processing workers
 	for i := 0; i < config.TxWorkers; i++ {
 		p.wg.Add(1)
@@ -232,13 +261,13 @@ func (p *GPUProcessor) ProcessHashesBatch(hashes [][]byte, callback func([][]byt
 		callback(nil, nil)
 		return nil
 	}
-
+	
 	batch := &HashBatch{
 		Hashes:   hashes,
 		Results:  make([][]byte, len(hashes)),
 		Callback: callback,
 	}
-
+	
 	select {
 	case p.hashPool <- batch:
 		return nil
@@ -255,7 +284,7 @@ func (p *GPUProcessor) ProcessSignaturesBatch(signatures, messages, publicKeys [
 		callback(nil, nil)
 		return nil
 	}
-
+	
 	batch := &SignatureBatch{
 		Signatures: signatures,
 		Messages:   messages,
@@ -263,7 +292,7 @@ func (p *GPUProcessor) ProcessSignaturesBatch(signatures, messages, publicKeys [
 		Results:    make([]bool, len(signatures)),
 		Callback:   callback,
 	}
-
+	
 	select {
 	case p.signaturePool <- batch:
 		return nil
@@ -280,13 +309,13 @@ func (p *GPUProcessor) ProcessTransactionsBatch(txs []*types.Transaction, callba
 		callback(nil, nil)
 		return nil
 	}
-
+	
 	batch := &TransactionBatch{
 		Transactions: txs,
 		Results:      make([]*TxResult, len(txs)),
 		Callback:     callback,
 	}
-
+	
 	select {
 	case p.txPool <- batch:
 		return nil
@@ -300,14 +329,14 @@ func (p *GPUProcessor) ProcessTransactionsBatch(txs []*types.Transaction, callba
 // hashWorker processes hash batches using GPU acceleration
 func (p *GPUProcessor) hashWorker() {
 	defer p.wg.Done()
-
+	
 	for {
 		select {
 		case <-p.ctx.Done():
 			return
 		case batch := <-p.hashPool:
 			start := time.Now()
-
+			
 			if p.gpuType == GPUTypeNone {
 				// CPU fallback
 				p.processHashesCPU(batch)
@@ -315,7 +344,7 @@ func (p *GPUProcessor) hashWorker() {
 				// GPU processing
 				p.processHashesGPU(batch)
 			}
-
+			
 			duration := time.Since(start)
 			p.updateHashStats(duration)
 		}
@@ -325,14 +354,14 @@ func (p *GPUProcessor) hashWorker() {
 // signatureWorker processes signature verification batches
 func (p *GPUProcessor) signatureWorker() {
 	defer p.wg.Done()
-
+	
 	for {
 		select {
 		case <-p.ctx.Done():
 			return
 		case batch := <-p.signaturePool:
 			start := time.Now()
-
+			
 			if p.gpuType == GPUTypeNone {
 				// CPU fallback
 				p.processSignaturesCPU(batch)
@@ -340,7 +369,7 @@ func (p *GPUProcessor) signatureWorker() {
 				// GPU processing
 				p.processSignaturesGPU(batch)
 			}
-
+			
 			duration := time.Since(start)
 			p.updateSigStats(duration)
 		}
@@ -350,14 +379,14 @@ func (p *GPUProcessor) signatureWorker() {
 // transactionWorker processes transaction batches
 func (p *GPUProcessor) transactionWorker() {
 	defer p.wg.Done()
-
+	
 	for {
 		select {
 		case <-p.ctx.Done():
 			return
 		case batch := <-p.txPool:
 			start := time.Now()
-
+			
 			if p.gpuType == GPUTypeNone {
 				// CPU fallback
 				p.processTransactionsCPU(batch)
@@ -365,7 +394,7 @@ func (p *GPUProcessor) transactionWorker() {
 				// GPU processing
 				p.processTransactionsGPU(batch)
 			}
-
+			
 			duration := time.Since(start)
 			p.updateTxStats(duration)
 		}
@@ -381,8 +410,8 @@ func (p *GPUProcessor) processHashesGPU(batch *HashBatch) {
 		}
 	}()
 
-	// Pack input into fixed 256-byte slots per hash and capture exact lengths
-	in, lengths := p.prepareHashData(batch.Hashes)
+	// Pack input into fixed 256-byte slots per hash
+	in := p.prepareHashData(batch.Hashes)
 	defer p.memoryPool.Put(in)
 
 	// Allocate output buffer: 32 bytes per hash
@@ -395,14 +424,12 @@ func (p *GPUProcessor) processHashesGPU(batch *HashBatch) {
 	case GPUTypeCUDA:
 		result = int(C.cuda_process_hashes(
 			unsafe.Pointer(&in[0]),
-			unsafe.Pointer(&lengths[0]),
 			C.int(count),
 			unsafe.Pointer(&out[0]),
 		))
 	case GPUTypeOpenCL:
 		result = int(C.processHashesOpenCL(
 			unsafe.Pointer(&in[0]),
-			unsafe.Pointer(&lengths[0]),
 			C.int(count),
 			unsafe.Pointer(&out[0]),
 		))
@@ -433,7 +460,7 @@ func (p *GPUProcessor) processHashesCPU(batch *HashBatch) {
 		result := crypto.Keccak256(hash)
 		batch.Results[i] = result
 	}
-
+	
 	if batch.Callback != nil {
 		batch.Callback(batch.Results, nil)
 	}
@@ -448,27 +475,27 @@ func (p *GPUProcessor) processSignaturesGPU(batch *SignatureBatch) {
 		}
 	}()
 
+	// Pack input as [65|32|64] per item (stride 161 bytes)
+	packed := p.prepareSignatureData(batch.Signatures, batch.Messages, batch.PublicKeys)
+	defer p.memoryPool.Put(packed)
+
 	// Output buffer: 1 byte (0/1) per signature
 	count := len(batch.Signatures)
 	out := make([]byte, count)
 
-	sigs := make([]byte, count*65)
-	msgs := make([]byte, count*32)
-	keys := make([]byte, count*65)
-	for i := 0; i < count; i++ {
-		sigSlot := sigs[i*65 : (i+1)*65]
-		msgSlot := msgs[i*32 : (i+1)*32]
-		keySlot := keys[i*65 : (i+1)*65]
-
-		copy(sigSlot, batch.Signatures[i])
-		copy(msgSlot, batch.Messages[i])
-		copy(keySlot, batch.PublicKeys[i])
-	}
-
 	// Process on GPU
 	var result int
 	switch p.gpuType {
-	case GPUTypeCUDA:
+	case GPUTypeCUDA: {
+		// CUDA expects separate buffers for signatures, messages, and pubkeys
+		sigs := make([]byte, count*65)
+		msgs := make([]byte, count*32)
+		keys := make([]byte, count*64)
+		for i := 0; i < count; i++ {
+			copy(sigs[i*65:(i+1)*65], batch.Signatures[i])
+			copy(msgs[i*32:(i+1)*32], batch.Messages[i])
+			copy(keys[i*64:(i+1)*64], batch.PublicKeys[i])
+		}
 		result = int(C.cuda_verify_signatures(
 			unsafe.Pointer(&sigs[0]),
 			unsafe.Pointer(&msgs[0]),
@@ -476,11 +503,10 @@ func (p *GPUProcessor) processSignaturesGPU(batch *SignatureBatch) {
 			C.int(count),
 			unsafe.Pointer(&out[0]),
 		))
+	}
 	case GPUTypeOpenCL:
 		result = int(C.verifySignaturesOpenCL(
-			unsafe.Pointer(&sigs[0]),
-			unsafe.Pointer(&msgs[0]),
-			unsafe.Pointer(&keys[0]),
+			unsafe.Pointer(&packed[0]),
 			C.int(count),
 			unsafe.Pointer(&out[0]),
 		))
@@ -505,26 +531,14 @@ func (p *GPUProcessor) processSignaturesGPU(batch *SignatureBatch) {
 // processSignaturesCPU processes signature verification using CPU as fallback
 func (p *GPUProcessor) processSignaturesCPU(batch *SignatureBatch) {
 	for i := range batch.Signatures {
-		if len(batch.Signatures[i]) < 64 || len(batch.Messages[i]) != 32 {
-			batch.Results[i] = false
-			continue
-		}
-		key := batch.PublicKeys[i]
-		switch len(key) {
-		case 65:
-			key = append([]byte(nil), key...)
-		case 64:
-			prefixed := make([]byte, 65)
-			prefixed[0] = 0x04
-			copy(prefixed[1:], key)
-			key = prefixed
-		default:
+		if len(batch.Signatures[i]) != 65 || len(batch.Messages[i]) != 32 || len(batch.PublicKeys[i]) != 64 {
 			batch.Results[i] = false
 			continue
 		}
 		sig := batch.Signatures[i][:64] // R||S only
 		hash := batch.Messages[i]
-		batch.Results[i] = crypto.VerifySignature(key, hash, sig)
+		pubkey := batch.PublicKeys[i] // uncompressed 64-byte (X||Y)
+		batch.Results[i] = crypto.VerifySignature(pubkey, hash, sig)
 	}
 	if batch.Callback != nil {
 		batch.Callback(batch.Results, nil)
@@ -540,13 +554,13 @@ func (p *GPUProcessor) processTransactionsGPU(batch *TransactionBatch) {
 		}
 	}()
 
-	// Pack input into fixed 1024-byte slots per tx and capture lengths
-	in, lengths := p.prepareTransactionData(batch.Transactions)
+	// Pack input into fixed 1024-byte slots per tx
+	in := p.prepareTransactionData(batch.Transactions)
 	defer p.memoryPool.Put(in)
 
 	count := len(batch.Transactions)
-	const txResultStride = 64
-	out := make([]byte, count*txResultStride)
+	// Output buffer: 64 bytes per tx: [0]=valid, [1]=checksum, [2..9]=gas (8 bytes LE), rest reserved
+	out := make([]byte, count*64)
 
 	// Process on GPU
 	var result int
@@ -554,14 +568,12 @@ func (p *GPUProcessor) processTransactionsGPU(batch *TransactionBatch) {
 	case GPUTypeCUDA:
 		result = int(C.cuda_process_transactions(
 			unsafe.Pointer(&in[0]),
-			unsafe.Pointer(&lengths[0]),
 			C.int(count),
 			unsafe.Pointer(&out[0]),
 		))
 	case GPUTypeOpenCL:
 		result = int(C.processTxBatchOpenCL(
 			unsafe.Pointer(&in[0]),
-			unsafe.Pointer(&lengths[0]),
 			C.int(count),
 			unsafe.Pointer(&out[0]),
 		))
@@ -575,33 +587,37 @@ func (p *GPUProcessor) processTransactionsGPU(batch *TransactionBatch) {
 
 	// Convert results
 	for i := 0; i < count; i++ {
-		offset := i * txResultStride
-		entry := out[offset : offset+txResultStride]
+		offset := i * 64
 
-		hash := common.Hash{}
-		copy(hash[:], entry[:32])
-		if (hash == common.Hash{}) {
-			hash = batch.Transactions[i].Hash()
+		// Interpret result layout based on backend:
+		// - CUDA:   [0]=valid, [1]=checksum, [2..9]=gas (LE)
+		// - OpenCL: [0..31]=hash, [32]=valid, (no gas written)
+		var valid bool
+		var gas uint64
+		switch p.gpuType {
+		case GPUTypeOpenCL:
+			if len(out) >= offset+33 {
+				valid = out[offset+32] != 0
+			}
+			// No gas provided by OpenCL kernel, will fall back to tx.Gas()
+		default:
+			if len(out) >= offset+1 {
+				valid = out[offset] != 0
+			}
+			if len(out) >= offset+10 {
+				gas = binary.LittleEndian.Uint64(out[offset+2 : offset+10])
+			}
 		}
-
-		valid := entry[32] != 0
-		errCode := entry[33]
-		gas := binary.LittleEndian.Uint64(entry[40:48])
 
 		if batch.Results[i] == nil {
 			batch.Results[i] = &TxResult{}
 		}
-		batch.Results[i].Hash = hash
-		batch.Results[i].Valid = valid && errCode == 0
+		batch.Results[i].Hash = batch.Transactions[i].Hash()
+		batch.Results[i].Valid = valid
 		if gas > 0 {
 			batch.Results[i].GasUsed = gas
 		} else {
 			batch.Results[i].GasUsed = batch.Transactions[i].Gas()
-		}
-		if errCode != 0 {
-			batch.Results[i].Error = errors.New("gpu transaction decode failed")
-		} else {
-			batch.Results[i].Error = nil
 		}
 	}
 
@@ -620,14 +636,14 @@ func (p *GPUProcessor) processTransactionsCPU(batch *TransactionBatch) {
 			Error:   nil,
 		}
 	}
-
+	
 	if batch.Callback != nil {
 		batch.Callback(batch.Results, nil)
 	}
 }
 
 // Helper functions for data preparation with safety checks
-func (p *GPUProcessor) prepareHashData(hashes [][]byte) ([]byte, []uint32) {
+func (p *GPUProcessor) prepareHashData(hashes [][]byte) []byte {
 	// OpenCL/CUDA kernels expect fixed 256 bytes per input item
 	const slot = 256
 	count := len(hashes)
@@ -639,11 +655,7 @@ func (p *GPUProcessor) prepareHashData(hashes [][]byte) ([]byte, []uint32) {
 		buf = make([]byte, total)
 	}
 	data := buf[:total]
-	for i := range data {
-		data[i] = 0
-	}
 
-	lengths := make([]uint32, count)
 	for i, h := range hashes {
 		base := i * slot
 		n := len(h)
@@ -651,12 +663,35 @@ func (p *GPUProcessor) prepareHashData(hashes [][]byte) ([]byte, []uint32) {
 			n = slot
 		}
 		copy(data[base:base+n], h[:n])
-		lengths[i] = uint32(n)
+		// Remaining bytes are already zeroed
 	}
-	return data, lengths
+	return data
 }
 
-func (p *GPUProcessor) prepareTransactionData(txs []*types.Transaction) ([]byte, []uint32) {
+func (p *GPUProcessor) prepareSignatureData(signatures, messages, publicKeys [][]byte) []byte {
+	data := p.memoryPool.Get().([]byte)
+	offset := 0
+	
+	for i := range signatures {
+		totalSize := len(signatures[i]) + len(messages[i]) + len(publicKeys[i])
+		// Safety check to prevent buffer overflow
+		if offset+totalSize > len(data) {
+			log.Warn("Signature data buffer overflow, truncating batch", "offset", offset, "totalSize", totalSize, "bufferLen", len(data))
+			break
+		}
+		
+		copy(data[offset:], signatures[i])
+		offset += len(signatures[i])
+		copy(data[offset:], messages[i])
+		offset += len(messages[i])
+		copy(data[offset:], publicKeys[i])
+		offset += len(publicKeys[i])
+	}
+	
+	return data[:offset]
+}
+
+func (p *GPUProcessor) prepareTransactionData(txs []*types.Transaction) []byte {
 	// Kernels expect fixed 1024 bytes per transaction
 	const slot = 1024
 	count := len(txs)
@@ -667,11 +702,7 @@ func (p *GPUProcessor) prepareTransactionData(txs []*types.Transaction) ([]byte,
 		buf = make([]byte, total)
 	}
 	data := buf[:total]
-	for i := range data {
-		data[i] = 0
-	}
 
-	lengths := make([]uint32, count)
 	for i, tx := range txs {
 		txBytes, err := tx.MarshalBinary()
 		if err != nil {
@@ -685,9 +716,9 @@ func (p *GPUProcessor) prepareTransactionData(txs []*types.Transaction) ([]byte,
 			n = slot
 		}
 		copy(data[base:base+n], txBytes[:n])
-		lengths[i] = uint32(n)
+		// Remaining bytes are left zeroed
 	}
-	return data, lengths
+	return data
 }
 
 func (p *GPUProcessor) convertHashResults(batch *HashBatch) {
@@ -712,7 +743,7 @@ func (p *GPUProcessor) convertTransactionResults(batch *TransactionBatch) {
 func (p *GPUProcessor) updateHashStats(duration time.Duration) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-
+	
 	p.processedHashes++
 	if p.avgHashTime == 0 {
 		p.avgHashTime = duration
@@ -724,7 +755,7 @@ func (p *GPUProcessor) updateHashStats(duration time.Duration) {
 func (p *GPUProcessor) updateSigStats(duration time.Duration) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-
+	
 	p.processedSigs++
 	if p.avgSigTime == 0 {
 		p.avgSigTime = duration
@@ -736,7 +767,7 @@ func (p *GPUProcessor) updateSigStats(duration time.Duration) {
 func (p *GPUProcessor) updateTxStats(duration time.Duration) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-
+	
 	p.processedTxs++
 	if p.avgTxTime == 0 {
 		p.avgTxTime = duration
@@ -749,7 +780,7 @@ func (p *GPUProcessor) updateTxStats(duration time.Duration) {
 func (p *GPUProcessor) GetStats() GPUStats {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-
+	
 	return GPUStats{
 		GPUType:         p.gpuType,
 		DeviceCount:     p.deviceCount,
@@ -793,13 +824,13 @@ func (p *GPUProcessor) GetGPUType() GPUType {
 // Close gracefully shuts down the GPU processor
 func (p *GPUProcessor) Close() error {
 	log.Info("Shutting down GPU processor...")
-
+	
 	// Cancel context to stop all workers
 	p.cancel()
-
+	
 	// Wait for all workers to finish
 	p.wg.Wait()
-
+	
 	// Cleanup GPU resources
 	switch p.gpuType {
 	case GPUTypeCUDA:
@@ -807,7 +838,7 @@ func (p *GPUProcessor) Close() error {
 	case GPUTypeOpenCL:
 		C.cleanupOpenCL()
 	}
-
+	
 	log.Info("GPU processor shutdown complete")
 	return nil
 }
@@ -820,7 +851,7 @@ func InitGlobalGPUProcessor(config *GPUConfig) error {
 	if globalGPUProcessor != nil {
 		globalGPUProcessor.Close()
 	}
-
+	
 	var err error
 	globalGPUProcessor, err = NewGPUProcessor(config)
 	return err

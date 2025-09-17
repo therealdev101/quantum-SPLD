@@ -67,25 +67,25 @@ liboqs-clean:
 # Build geth with post-quantum support
 geth: liboqs
 	@echo "Building geth with post-quantum support..."
-	@$(PQ_CGO_CFLAGS) $(PQ_CGO_LDFLAGS) go build -tags liboqs -ldflags "-s -w" -o build/bin/geth ./cmd/geth
+	@$(PQ_CGO_CFLAGS) $(PQ_CGO_LDFLAGS) go build -ldflags "-s -w" -o build/bin/geth ./cmd/geth
 
 # Build all tools with post-quantum support
 all-tools: liboqs
 	@echo "Building all tools with post-quantum support..."
-	@$(PQ_CGO_CFLAGS) $(PQ_CGO_LDFLAGS) go build -tags liboqs -ldflags "-s -w" -o build/bin/geth ./cmd/geth
-	@$(PQ_CGO_CFLAGS) $(PQ_CGO_LDFLAGS) go build -tags liboqs -ldflags "-s -w" -o build/bin/bootnode ./cmd/bootnode
-	@$(PQ_CGO_CFLAGS) $(PQ_CGO_LDFLAGS) go build -tags liboqs -ldflags "-s -w" -o build/bin/evm ./cmd/evm
-	@$(PQ_CGO_CFLAGS) $(PQ_CGO_LDFLAGS) go build -tags liboqs -ldflags "-s -w" -o build/bin/rlpdump ./cmd/rlpdump
+	@$(PQ_CGO_CFLAGS) $(PQ_CGO_LDFLAGS) go build -ldflags "-s -w" -o build/bin/geth ./cmd/geth
+	@$(PQ_CGO_CFLAGS) $(PQ_CGO_LDFLAGS) go build -ldflags "-s -w" -o build/bin/bootnode ./cmd/bootnode
+	@$(PQ_CGO_CFLAGS) $(PQ_CGO_LDFLAGS) go build -ldflags "-s -w" -o build/bin/evm ./cmd/evm
+	@$(PQ_CGO_CFLAGS) $(PQ_CGO_LDFLAGS) go build -ldflags "-s -w" -o build/bin/rlpdump ./cmd/rlpdump
 
 # Run post-quantum tests
 pq-test: liboqs
 	@echo "Running post-quantum tests (mldsa only)..."
-	@CGO_ENABLED=1 $(PQ_CGO_CFLAGS) $(PQ_CGO_LDFLAGS) go test -tags liboqs -v ./crypto/mldsa/...
+	@CGO_ENABLED=1 $(PQ_CGO_CFLAGS) $(PQ_CGO_LDFLAGS) go test -v ./crypto/mldsa/...
 
 # Run post-quantum benchmarks
 pq-bench: liboqs
 	@echo "Running post-quantum benchmarks..."
-	@$(PQ_CGO_CFLAGS) $(PQ_CGO_LDFLAGS) go test -tags liboqs -bench=. -benchmem ./crypto/mldsa/...
+	@$(PQ_CGO_CFLAGS) $(PQ_CGO_LDFLAGS) go test -bench=. -benchmem ./crypto/mldsa/...
 
 # Validate liboqs installation
 validate-liboqs:
@@ -131,7 +131,7 @@ production: liboqs
 	@echo "Building production binaries with post-quantum support..."
 	@$(PQ_CGO_CFLAGS) $(PQ_CGO_LDFLAGS) go build \
 		-ldflags "-s -w -X main.gitCommit=$(shell git rev-parse HEAD) -X main.buildDate=$(shell date -u +%Y%m%d)" \
-		-tags 'netgo liboqs' -installsuffix netgo \
+		-tags netgo -installsuffix netgo \
 		-o build/bin/geth ./cmd/geth
 	@strip build/bin/geth 2>/dev/null || true
 	@echo "Production build complete"

@@ -116,26 +116,18 @@ startRpc(){
         echo -e "${GREEN}Starting RPC node$node_num with optimized resource limits${NC}"
         
         # Set resource limits before starting
-        ulimit -n 1048576
-        export GOMAXPROCS=$(nproc)
+        ulimit -n 65536
+        export GOMAXPROCS=20
         
         tmux new-session -d -s node$node_num
-        tmux send-keys -t node$node_num "ulimit -n 1048576" Enter
-        tmux send-keys -t node$node_num "export GOMAXPROCS=\$(nproc)" Enter
-        # Pass GPU + performance environment to tmux session
+        tmux send-keys -t node$node_num "ulimit -n 65536" Enter
+        tmux send-keys -t node$node_num "export GOMAXPROCS=20" Enter
+        # Pass GPU environment to tmux session
         if [ "$ENABLE_GPU" = "true" ]; then
           tmux send-keys -t node$node_num "export CUDA_PATH=/usr/local/cuda" Enter
           tmux send-keys -t node$node_num "export LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/local/lib:$(pwd)/node_src/common/gpu:\$LD_LIBRARY_PATH" Enter
           tmux send-keys -t node$node_num "export PATH=/usr/local/cuda/bin:\$PATH" Enter
           tmux send-keys -t node$node_num "export ENABLE_GPU=true" Enter
-          tmux send-keys -t node$node_num "export THROUGHPUT_TARGET=${THROUGHPUT_TARGET:-3000000}" Enter
-          tmux send-keys -t node$node_num "export GPU_MAX_BATCH_SIZE=${GPU_MAX_BATCH_SIZE:-200000}" Enter
-          tmux send-keys -t node$node_num "export GPU_MAX_MEMORY_USAGE=${GPU_MAX_MEMORY_USAGE:-17179869184}" Enter
-          tmux send-keys -t node$node_num "export GPU_THRESHOLD=${GPU_THRESHOLD:-1000}" Enter
-          tmux send-keys -t node$node_num "export GPU_HASH_WORKERS=${GPU_HASH_WORKERS:-32}" Enter
-          tmux send-keys -t node$node_num "export GPU_SIGNATURE_WORKERS=${GPU_SIGNATURE_WORKERS:-32}" Enter
-          tmux send-keys -t node$node_num "export GPU_TX_WORKERS=${GPU_TX_WORKERS:-32}" Enter
-          tmux send-keys -t node$node_num "export ENABLE_AI_LOAD_BALANCING=${ENABLE_AI_LOAD_BALANCING:-true}" Enter
         fi
         tmux send-keys -t node$node_num "./node_src/build/bin/geth --datadir ./chaindata/node$node_num --networkid $CHAINID --bootnodes $BOOTNODE --port 30303 --ws --ws.addr $IP --ws.origins '*' --ws.port 8545 --http --http.port 80 --rpc.txfeecap 0 --http.corsdomain '*' --nat any --http.api db,eth,net,web3,personal,txpool,miner,debug,x402,gpu --http.addr 0.0.0.0 --http.vhosts '*' --vmdebug --pprof --pprof.port 6060 --pprof.addr $IP --syncmode=full --gcmode=archive --cache=1024 --cache.database=512 --cache.trie=256 --cache.gc=256 --txpool.accountslots=1000000 --txpool.globalslots=10000000 --txpool.accountqueue=500000 --txpool.globalqueue=5000000 --maxpeers=25 --ipcpath './chaindata/node$node_num/geth.ipc' console" Enter
       fi
@@ -155,49 +147,23 @@ startValidator(){
         echo -e "${GREEN}Starting Validator node$node_num with optimized resource limits${NC}"
         
         # Set resource limits before starting
-        ulimit -n 1048576
-        export GOMAXPROCS=$(nproc)
+        ulimit -n 65536
+        export GOMAXPROCS=20
         
         tmux new-session -d -s node$node_num
-        tmux send-keys -t node$node_num "ulimit -n 1048576" Enter
-        tmux send-keys -t node$node_num "export GOMAXPROCS=\$(nproc)" Enter
-        # Pass GPU + performance environment to tmux session
+        tmux send-keys -t node$node_num "ulimit -n 65536" Enter
+        tmux send-keys -t node$node_num "export GOMAXPROCS=20" Enter
+        # Pass GPU environment to tmux session
         if [ "$ENABLE_GPU" = "true" ]; then
           tmux send-keys -t node$node_num "export CUDA_PATH=/usr/local/cuda" Enter
           tmux send-keys -t node$node_num "export LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/local/lib:$(pwd)/node_src/common/gpu:\$LD_LIBRARY_PATH" Enter
           tmux send-keys -t node$node_num "export PATH=/usr/local/cuda/bin:\$PATH" Enter
           tmux send-keys -t node$node_num "export ENABLE_GPU=true" Enter
-          tmux send-keys -t node$node_num "export THROUGHPUT_TARGET=${THROUGHPUT_TARGET:-3000000}" Enter
-          tmux send-keys -t node$node_num "export GPU_MAX_BATCH_SIZE=${GPU_MAX_BATCH_SIZE:-200000}" Enter
-          tmux send-keys -t node$node_num "export GPU_MAX_MEMORY_USAGE=${GPU_MAX_MEMORY_USAGE:-17179869184}" Enter
-          tmux send-keys -t node$node_num "export GPU_THRESHOLD=${GPU_THRESHOLD:-1000}" Enter
-          tmux send-keys -t node$node_num "export GPU_HASH_WORKERS=${GPU_HASH_WORKERS:-32}" Enter
-          tmux send-keys -t node$node_num "export GPU_SIGNATURE_WORKERS=${GPU_SIGNATURE_WORKERS:-32}" Enter
-          tmux send-keys -t node$node_num "export GPU_TX_WORKERS=${GPU_TX_WORKERS:-32}" Enter
-          tmux send-keys -t node$node_num "export ENABLE_AI_LOAD_BALANCING=${ENABLE_AI_LOAD_BALANCING:-true}" Enter
         fi
         tmux send-keys -t node$node_num "LD_LIBRARY_PATH=./node_src/common/gpu:/usr/local/cuda/lib64:\$LD_LIBRARY_PATH ./node_src/build/bin/geth --datadir ./chaindata/node$node_num --networkid $CHAINID --bootnodes $BOOTNODE --mine --port 30303 --nat extip:$IP --gpo.percentile 0 --gpo.maxprice 100 --gpo.ignoreprice 0 --miner.gaslimit 500000000000 --unlock 0 --password ./chaindata/node$node_num/pass.txt --syncmode=full --gcmode=archive --cache=1024 --cache.database=512 --cache.trie=256 --cache.gc=256 --txpool.accountslots=1000000 --txpool.globalslots=10000000 --txpool.accountqueue=500000 --txpool.globalqueue=5000000 --maxpeers=25 console" Enter
       fi
     fi
   done
-}
-
-gpu_is_ready() {
-  # Strict readiness: driver loaded and NVML can enumerate at least one GPU
-  if command -v nvidia-smi >/dev/null 2>&1; then
-    if timeout 4 nvidia-smi -L 2>/dev/null | grep -q "."; then
-      return 0
-    fi
-  fi
-  # Secondary: device node and module present
-  if [ -e /dev/nvidia0 ] && lsmod 2>/dev/null | grep -qi '^nvidia\b'; then
-    return 0
-  fi
-  # Hardware present but driver inactive
-  if lspci 2>/dev/null | grep -qi nvidia; then
-    return 2
-  fi
-  return 1
 }
 
 initializeGPU(){
@@ -206,19 +172,14 @@ initializeGPU(){
   # Quick non-blocking GPU check
   if [ "$ENABLE_GPU" = "true" ]; then
     echo -e "${CYAN}GPU acceleration enabled${NC}"
-
-    if gpu_is_ready; then
+    
+    # Fast GPU status check (non-blocking)
+    if timeout 3 nvidia-smi >/dev/null 2>&1; then
       echo -e "${GREEN}✅ GPU drivers active and ready${NC}"
       GPU_STATUS="active"
     else
-      status=$?
-      if [ "$status" -eq 2 ]; then
-        echo -e "${ORANGE}⚠️  NVIDIA hardware detected but drivers inactive - running in CPU mode${NC}"
-        GPU_STATUS="pending_activation"
-      else
-        echo -e "${ORANGE}ℹ️  No NVIDIA GPU hardware detected - running in CPU mode${NC}"
-        GPU_STATUS="no_gpu"
-      fi
+      echo -e "${ORANGE}⚠️  GPU drivers need reboot activation - continuing with CPU mode${NC}"
+      GPU_STATUS="pending_reboot"
     fi
     
     # Enhanced CUDA check with multiple path detection
@@ -243,11 +204,11 @@ initializeGPU(){
     if [ "$CUDA_AVAILABLE" = "true" ]; then
       echo -e "${GREEN}✅ CUDA toolkit available and ready${NC}"
       # Verify CUDA can detect GPU
-      if gpu_is_ready; then
+      if timeout 5 nvidia-smi >/dev/null 2>&1; then
         echo -e "${GREEN}✅ CUDA-GPU communication verified${NC}"
       fi
     else
-      echo -e "${ORANGE}⚠️  CUDA toolkit not found - using OpenCL or CPU${NC}"
+      echo -e "${ORANGE}⚠️  CUDA toolkit not found - using OpenCL acceleration${NC}"
     fi
     
     echo -e "${GREEN}GPU Config: ${ORANGE}${THROUGHPUT_TARGET:-1000000} TPS target${NC}"
@@ -295,7 +256,7 @@ finalize(){
       VLLM_PID=$!
       echo $VLLM_PID > /tmp/vllm.pid
       
-      cd /root/quantum-SPLD/Core-Blockchain/
+      cd /root/splendor-blockchain-v4/Core-Blockchain/
       
       log_success "vLLM AI service started (PID: $VLLM_PID)"
       AI_STATUS="service_started"
@@ -357,7 +318,7 @@ finalize(){
   fi
   
   pm2 save
-  cd /root/quantum-SPLD/Core-Blockchain/
+  cd /root/splendor-blockchain-v4/Core-Blockchain/
 
   # Final status report
   echo -e "\n${GREEN}+------------------ SYSTEM STATUS -------------------+${NC}"
@@ -394,20 +355,15 @@ finalize(){
       ;;
   esac
   
-  # Check GPU status (use robust detector + earlier GPU_STATUS)
-  if gpu_is_ready; then
+  # Check GPU status
+  if timeout 3 nvidia-smi >/dev/null 2>&1; then
     echo -e "${GREEN}✅ GPU: Active and ready${NC}"
   else
-    status=$?
-    if [ "$status" -eq 2 ]; then
-      echo -e "${ORANGE}⚠️  GPU: Hardware detected but driver inactive${NC}"
-    else
-      echo -e "${ORANGE}ℹ️  GPU: No NVIDIA GPU detected${NC}"
-    fi
+    echo -e "${ORANGE}⚠️  GPU: Will activate after reboot${NC}"
   fi
   
   # Check if GPU drivers need reboot and offer reboot
-  if [ "$GPU_STATUS" = "pending_activation" ] && lspci | grep -i nvidia >/dev/null 2>&1; then
+  if [ "$GPU_STATUS" = "pending_reboot" ] && lspci | grep -i nvidia >/dev/null 2>&1; then
     echo -e "\n${ORANGE}╔══════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${ORANGE}║                    GPU REBOOT RECOMMENDED                   ║${NC}"
     echo -e "${ORANGE}║                                                              ║${NC}"
