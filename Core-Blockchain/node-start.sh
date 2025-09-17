@@ -182,20 +182,50 @@ startValidator(){
   done
 }
 
+gpu_is_ready() {
+  # Return 0 if GPU appears available and usable; 2 if hardware present but driver inactive; 1 if no GPU signals
+  if command -v nvidia-smi >/dev/null 2>&1; then
+    if timeout 3 nvidia-smi -L 2>/dev/null | grep -q "."; then
+      return 0
+    fi
+    if timeout 3 nvidia-smi >/dev/null 2>&1; then
+      return 0
+    fi
+  fi
+  if [ -e /dev/nvidia0 ] || [ -e /dev/nvidiactl ]; then
+    return 0
+  fi
+  if lsmod 2>/dev/null | grep -qi '^nvidia\b'; then
+    return 0
+  fi
+  if (lspci 2>/dev/null | grep -qi nvidia) && ldconfig -p 2>/dev/null | grep -qi 'libnvidia'; then
+    return 0
+  fi
+  if lspci 2>/dev/null | grep -qi nvidia; then
+    return 2
+  fi
+  return 1
+}
+
 initializeGPU(){
   echo -e "\n${GREEN}+------------------ GPU Initialization -------------------+${NC}"
   
   # Quick non-blocking GPU check
   if [ "$ENABLE_GPU" = "true" ]; then
     echo -e "${CYAN}GPU acceleration enabled${NC}"
-    
-    # Fast GPU status check (non-blocking)
-    if timeout 3 nvidia-smi >/dev/null 2>&1; then
+
+    if gpu_is_ready; then
       echo -e "${GREEN}✅ GPU drivers active and ready${NC}"
       GPU_STATUS="active"
     else
-      echo -e "${ORANGE}⚠️  GPU drivers need reboot activation - continuing with CPU mode${NC}"
-      GPU_STATUS="pending_reboot"
+      status=$?
+      if [ "$status" -eq 2 ]; then
+        echo -e "${ORANGE}⚠️  NVIDIA hardware detected but drivers inactive - running in CPU mode${NC}"
+        GPU_STATUS="pending_activation"
+      else
+        echo -e "${ORANGE}ℹ️  No NVIDIA GPU hardware detected - running in CPU mode${NC}"
+        GPU_STATUS="no_gpu"
+      fi
     fi
     
     # Enhanced CUDA check with multiple path detection
@@ -220,11 +250,11 @@ initializeGPU(){
     if [ "$CUDA_AVAILABLE" = "true" ]; then
       echo -e "${GREEN}✅ CUDA toolkit available and ready${NC}"
       # Verify CUDA can detect GPU
-      if timeout 5 nvidia-smi >/dev/null 2>&1; then
+      if gpu_is_ready; then
         echo -e "${GREEN}✅ CUDA-GPU communication verified${NC}"
       fi
     else
-      echo -e "${ORANGE}⚠️  CUDA toolkit not found - using OpenCL acceleration${NC}"
+      echo -e "${ORANGE}⚠️  CUDA toolkit not found - using OpenCL or CPU${NC}"
     fi
     
     echo -e "${GREEN}GPU Config: ${ORANGE}${THROUGHPUT_TARGET:-1000000} TPS target${NC}"

@@ -8,6 +8,11 @@ NC='\033[0m' # No Color
 CYAN='\033[0;36m'
 BASE_DIR='/root/splendor-blockchain-v4'
 
+# Behavior toggles (can be overridden by flags)
+# Default: keep existing NVIDIA drivers; only install if missing
+ENFORCE_DRIVER_VERSION=false
+AUTO_REBOOT=true
+
 # Flag: skip validator account setup (task8)
 NOPK=false
 # Recognize --nopk early (non-destructive parsing so existing getopts/case blocks still work)
@@ -522,10 +527,14 @@ install_gpu_dependencies(){
   if nvidia-smi >/dev/null 2>&1; then
     CURRENT_DRIVER=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader,nounits | head -1)
     log_success "NVIDIA drivers detected (current: $CURRENT_DRIVER)"
-    # Enforce exact required driver version
-    if [ "$CURRENT_DRIVER" != "$REQUIRED_DRIVER_VERSION" ]; then
-      log_wait "Driver version mismatch (need $REQUIRED_DRIVER_VERSION, found $CURRENT_DRIVER). Installing required version."
-      install_driver_exact
+    # Enforce exact required driver version (unless user opted to keep existing)
+    if [ "$ENFORCE_DRIVER_VERSION" = "true" ]; then
+      if [ "$CURRENT_DRIVER" != "$REQUIRED_DRIVER_VERSION" ]; then
+        log_wait "Driver version mismatch (need $REQUIRED_DRIVER_VERSION, found $CURRENT_DRIVER). Installing required version."
+        install_driver_exact
+      fi
+    else
+      log_wait "Keeping existing NVIDIA driver ($CURRENT_DRIVER); skipping version enforcement"
     fi
   else
     log_wait "Installing NVIDIA drivers for $GPU_ARCH architecture (target ${REQUIRED_DRIVER_VERSION})"
@@ -855,13 +864,30 @@ displayStatus(){
 }
 
 reboot_countdown(){
-  # Check if GPU drivers were installed and reboot is needed
-  if lspci | grep -i nvidia >/dev/null 2>&1 && ! nvidia-smi >/dev/null 2>&1; then
-    echo -e "\n${ORANGE}╔══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${ORANGE}║                    REBOOT REQUIRED                          ║${NC}"
-    echo -e "${ORANGE}║                                                              ║${NC}"
-    echo -e "${ORANGE}║  NVIDIA GPU drivers have been installed and require a       ║${NC}"
-    echo -e "${ORANGE}║  system reboot to activate GPU acceleration features.       ║${NC}"
+  # Determine readiness using robust detection
+  if gpu_is_ready; then
+    echo -e "\n${GREEN}✅ No reboot required - GPU drivers active${NC}"
+    return
+  fi
+  status=$?
+  # Hardware present but drivers likely inactive
+  if [ "$status" -eq 2 ]; then
+    if [ "$AUTO_REBOOT" = "true" ]; then
+      : # fall through to automatic reboot prompt below
+    else
+      echo -e "\n${ORANGE}⚠️  NVIDIA hardware detected but drivers appear inactive. Please reboot to activate GPU drivers.${NC}"
+      return
+    fi
+  else
+    echo -e "\n${GREEN}✅ No reboot required - no NVIDIA hardware detected or already handled${NC}"
+    return
+  fi
+  # At this point, we intend to reboot automatically
+  echo -e "\n${ORANGE}╔══════════════════════════════════════════════════════════════╗${NC}"
+  echo -e "${ORANGE}║                    REBOOT REQUIRED                          ║${NC}"
+  echo -e "${ORANGE}║                                                              ║${NC}"
+  echo -e "${ORANGE}║  NVIDIA GPU drivers have been installed and require a       ║${NC}"
+  echo -e "${ORANGE}║  system reboot to activate GPU acceleration features.       ║${NC}"
     echo -e "${ORANGE}║                                                              ║${NC}"
     echo -e "${ORANGE}║  After reboot, the node will automatically start via        ║${NC}"
     echo -e "${ORANGE}║  the configured autostart in /etc/profile                   ║${NC}"
@@ -880,10 +906,7 @@ reboot_countdown(){
     sync
     
     # Reboot the system
-    reboot
-  else
-    echo -e "\n${GREEN}✅ No reboot required - GPU drivers already active or no GPU detected${NC}"
-  fi
+  reboot
 }
 
 
@@ -1696,6 +1719,9 @@ usage() {
   echo -e "\t\t --rpc      Specify to create RPC node"
   echo -e "\t\t --validator  <whole number>     Specify number of validator node to create"
   echo -e "		 --nopk     Skip validator account import/creation (skip task8)"
+  echo -e "\t\t --keep-existing-drivers   Do not enforce/replace NVIDIA driver version (default)"
+  echo -e "\t\t --enforce-driver-version  Install pinned NVIDIA driver version if different"
+  echo -e "\t\t --no-auto-reboot         Do not auto reboot; only warn if needed"
 }
 
 
@@ -1762,6 +1788,18 @@ handle_options() {
       # skip validator account setup (task8)
       --nopk)
       NOPK=true
+      ;;
+
+      --keep-existing-drivers)
+      ENFORCE_DRIVER_VERSION=false
+      ;;
+
+      --enforce-driver-version)
+      ENFORCE_DRIVER_VERSION=true
+      ;;
+
+      --no-auto-reboot)
+      AUTO_REBOOT=false
       ;;
 
 
