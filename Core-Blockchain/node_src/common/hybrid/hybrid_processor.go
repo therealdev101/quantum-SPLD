@@ -73,8 +73,8 @@ func DefaultHybridConfig() *HybridConfig {
 		PerformanceMonitoring: true,
 		MaxCPUUtilization:     0.85,  // 85% max CPU usage (sustainable)
 		MaxGPUUtilization:     0.90,  // 90% max GPU usage (sustainable)
-		LatencyThreshold:      50 * time.Millisecond,  // More realistic latency target
-		ThroughputTarget:      3000000, // 3M TPS target (realistic for hardware)
+        LatencyThreshold:      50 * time.Millisecond,  // More realistic latency target
+        ThroughputTarget:      3000000, // 3M TPS target (aligned with miner/env defaults)
 		MaxMemoryUsage:        64 * 1024 * 1024 * 1024, // 64GB total system memory
 		GPUMemoryReservation:  12 * 1024 * 1024 * 1024, // 12GB GPU reserved (safer limit)
 	}

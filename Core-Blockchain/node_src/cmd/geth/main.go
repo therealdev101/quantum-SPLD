@@ -511,10 +511,11 @@ func initializeGPUAcceleration(ctx *cli.Context) {
 		PerformanceMonitoring: getEnvBool("PERFORMANCE_MONITORING", true),
 		MaxCPUUtilization:     getEnvFloat("MAX_CPU_UTILIZATION", 0.85),
 		MaxGPUUtilization:     getEnvFloat("MAX_GPU_UTILIZATION", 0.95),
-		ThroughputTarget:      getEnvUint64("THROUGHPUT_TARGET", 8000000),
+        // Align default throughput target with miner and docs (3M TPS)
+        ThroughputTarget:      getEnvUint64("THROUGHPUT_TARGET", 3000000),
 		GPUConfig: &gpu.GPUConfig{
 			PreferredGPUType: gpuType,
-			MaxBatchSize:     getEnvInt("GPU_MAX_BATCH_SIZE", 80000),
+            MaxBatchSize:     getEnvInt("GPU_MAX_BATCH_SIZE", 200000),
 			MaxMemoryUsage:   getEnvUint64("GPU_MAX_MEMORY_USAGE", 17179869184), // 16GB default
 			HashWorkers:      getEnvInt("GPU_HASH_WORKERS", 24),
 			SignatureWorkers: getEnvInt("GPU_SIGNATURE_WORKERS", 24),

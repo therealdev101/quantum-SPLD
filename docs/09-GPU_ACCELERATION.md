@@ -75,7 +75,7 @@ GPU_ENABLE_PIPELINING=true
 GPU_THRESHOLD=1000               # Use GPU for batches >= 1000 tx
 CPU_GPU_RATIO=0.85              # 85% GPU, 15% CPU
 ADAPTIVE_LOAD_BALANCING=true
-THROUGHPUT_TARGET=2000000       # 2M TPS target
+THROUGHPUT_TARGET=3000000       # 3M TPS target
 
 # Worker Configuration
 GPU_HASH_WORKERS=8

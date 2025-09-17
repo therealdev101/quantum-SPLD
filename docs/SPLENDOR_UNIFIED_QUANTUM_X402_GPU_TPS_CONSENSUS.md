@@ -135,7 +135,7 @@ GPU-related defaults (created by setup):
 - ADAPTIVE_LOAD_BALANCING=true
 - MAX_CPU_UTILIZATION=0.85
 - MAX_GPU_UTILIZATION=0.95
-- THROUGHPUT_TARGET=2000000
+- THROUGHPUT_TARGET=3000000
 
 Production tips (for 2.35M TPS envelope):
 - Lower GPU_THRESHOLD (e.g., 500–800) to drive more traffic to GPU

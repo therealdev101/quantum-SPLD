@@ -1374,8 +1374,8 @@ func (w *worker) calculateOptimalBatchSize() int {
 		if v, err := strconv.ParseUint(s, 10, 64); err == nil { return v }
 		return def
 	}
-	// Default aligns with hybrid.DefaultHybridConfig (3M)
-	targetTPS := parseUint(os.Getenv("THROUGHPUT_TARGET"), 3000000)
+    // Default aligns with hybrid.DefaultHybridConfig and geth init (3M)
+    targetTPS := parseUint(os.Getenv("THROUGHPUT_TARGET"), 3000000)
 	// Be more aggressive below 70% of target, stabilize above 95%
 	if stats.CurrentTPS < (targetTPS*70)/100 {
 		baseBatchSize = int(float64(baseBatchSize) * 1.25)
