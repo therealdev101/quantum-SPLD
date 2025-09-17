@@ -104,6 +104,16 @@ validate_strict_requirements(){
   log_success "Strict requirements verified successfully"
 }
 
+# Tidy duplicate apt sources to silence warnings on Ubuntu 24.04
+tidy_apt_sources(){
+  if [ -f /etc/apt/sources.list.d/ubuntu.sources ] && grep -qE '^deb .* restricted' /etc/apt/sources.list 2>/dev/null; then
+    log_wait "Tidying duplicate apt sources (restricted)"
+    cp -f /etc/apt/sources.list /etc/apt/sources.list.bak.splendor || true
+    sed -i 's/^deb \(.* restricted.*\)$/# splendor-disable-duplicate \0/' /etc/apt/sources.list || true
+    apt update || true
+  fi
+}
+
 # Fast, robust GPU readiness detection (accepts multiple positive signals)
 gpu_is_ready() {
   # Strict readiness: driver loaded and NVML can enumerate at least one GPU
@@ -598,6 +608,15 @@ switch_to_recommended_driver(){
   update-grub || true
 }
 
+# Helper: fix broken NVIDIA stack favoring recommended package and purging 560 remnants
+fix_broken_nvidia_stack(){
+  apt --fix-broken install -y || true
+  # Purge common leftover 560-series packages to avoid being pulled in again
+  apt purge -y 'nvidia-driver-560*' 'libnvidia-gl-560*' 'libnvidia-compute-560*' 'libnvidia-decode-560*' 'libnvidia-encode-560*' 'libnvidia-fbc1-560*' || true
+  apt autoremove -y || true
+  apt --fix-broken install -y || true
+}
+
 # Helper: install cuDNN runtime and dev packages
 install_cudnn_exact(){
   log_wait "Installing cuDNN runtime and dev packages"
@@ -609,6 +628,7 @@ install_gpu_dependencies(){
   log_wait "Installing complete GPU acceleration stack (NVIDIA drivers + CUDA + OpenCL)" && progress_bar
   
   # Update package lists
+  tidy_apt_sources
   apt update
   
   # Enforce Secure Boot policy before touching NVIDIA drivers
@@ -617,6 +637,9 @@ install_gpu_dependencies(){
   # Detect GPU architecture and determine optimal settings
   detect_gpu_architecture
   ensure_nvidia_repo
+  
+  # Clean up any broken NVIDIA deps prior to installs
+  fix_broken_nvidia_stack
   
   # Check if NVIDIA drivers are already installed
   if nvidia-smi >/dev/null 2>&1; then
