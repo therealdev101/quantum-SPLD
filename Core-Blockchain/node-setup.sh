@@ -11,7 +11,12 @@ BASE_DIR='/root/splendor-blockchain-v4'
 # Behavior toggles (can be overridden by flags)
 # Default: keep existing NVIDIA drivers; only install if missing
 ENFORCE_DRIVER_VERSION=false
+ENFORCE_RECOMMENDED_DRIVER=true
 AUTO_REBOOT=true
+# Secure Boot policy
+ENFORCE_SECURE_BOOT_DISABLED=true
+ALLOW_SECURE_BOOT=false
+AUTO_DISABLE_SECURE_BOOT=false
 
 # Flag: skip validator account setup (task8)
 NOPK=false
@@ -101,35 +106,54 @@ validate_strict_requirements(){
 
 # Fast, robust GPU readiness detection (accepts multiple positive signals)
 gpu_is_ready() {
-  # Return 0 if GPU appears available and usable, else non-zero
-  # 1) Prefer nvidia-smi listing at least one GPU (ignore exit code, parse output)
+  # Strict readiness: driver loaded and NVML can enumerate at least one GPU
   if command -v nvidia-smi >/dev/null 2>&1; then
-    if timeout 3 nvidia-smi -L 2>/dev/null | grep -q "."; then
-      return 0
-    fi
-    # Try basic nvidia-smi without requiring a full query
-    if timeout 3 nvidia-smi >/dev/null 2>&1; then
+    if timeout 4 nvidia-smi -L 2>/dev/null | grep -q "."; then
       return 0
     fi
   fi
-  # 2) Check for NVIDIA character devices
-  if [ -e /dev/nvidia0 ] || [ -e /dev/nvidiactl ]; then
+  # Secondary: device node and module present (covers rare path cases)
+  if [ -e /dev/nvidia0 ] && lsmod 2>/dev/null | grep -qi '^nvidia\b'; then
     return 0
   fi
-  # 3) Check loaded kernel modules
-  if lsmod 2>/dev/null | grep -qi '^nvidia\b'; then
-    return 0
-  fi
-  # 4) Hardware present via lspci plus NVIDIA userspace libs present
-  if (lspci 2>/dev/null | grep -qi nvidia) && ldconfig -p 2>/dev/null | grep -qi 'libnvidia'; then
-    return 0
-  fi
-  # 5) Final hardware presence (lspci) as a very lenient signal (treated as not-ready but present)
+  # Hardware present but inactive driver
   if lspci 2>/dev/null | grep -qi nvidia; then
-    # Hardware exists but drivers may not be active yet
     return 2
   fi
   return 1
+}
+
+# Enforce Secure Boot disabled for NVIDIA drivers (cannot disable from OS, but can guide)
+check_secure_boot(){
+  if [ "$ENFORCE_SECURE_BOOT_DISABLED" != "true" ]; then
+    return 0
+  fi
+  if ! command -v mokutil >/dev/null 2>&1; then
+    apt update >/dev/null 2>&1 || true
+    apt install -y mokutil >/dev/null 2>&1 || true
+  fi
+  if command -v mokutil >/dev/null 2>&1; then
+    SB_STATE=$(mokutil --sb-state 2>/dev/null | tr 'A-Z' 'a-z')
+    if echo "$SB_STATE" | grep -q "enabled"; then
+      echo -e "\n${ORANGE}╔══════════════════════════════════════════════════════════════╗${NC}"
+      echo -e "${ORANGE}║                   SECURE BOOT IS ENABLED                    ║${NC}"
+      echo -e "${ORANGE}║  Disable in BIOS/UEFI for NVIDIA drivers to load.           ║${NC}"
+      echo -e "${ORANGE}║  Or run: mokutil --disable-validation (confirm on reboot).  ║${NC}"
+      echo -e "${ORANGE}╚══════════════════════════════════════════════════════════════╝${NC}\n"
+      if [ "$ALLOW_SECURE_BOOT" = "true" ]; then
+        log_wait "Continuing with Secure Boot enabled (NVIDIA may fail to load)"
+        return 0
+      fi
+      if [ "$AUTO_DISABLE_SECURE_BOOT" = "true" ]; then
+        log_wait "Scheduling Secure Boot validation disable via MOK (interactive)"
+        mokutil --disable-validation || true
+        echo secureboot_reboot > /tmp/splendor_secureboot_reboot
+      else
+        log_error "Secure Boot must be disabled. Re-run with --auto-disable-secure-boot or disable in BIOS."
+        exit 1
+      fi
+    fi
+  fi
 }
 
 #+-----------------------------------------------------------------------------------------------+
@@ -495,15 +519,69 @@ ensure_nvidia_repo(){
 install_driver_exact(){
   local pkg
   for pkg in nvidia-driver-575-open nvidia-driver-575; do
-    if apt-cache madison "$pkg" | awk '{print $3}' | grep -q "^${REQUIRED_DRIVER_VERSION}"; then
-      log_wait "Installing $pkg version ${REQUIRED_DRIVER_VERSION}"
-      apt install -y "$pkg=${REQUIRED_DRIVER_VERSION}" || apt install -y "$pkg=${REQUIRED_DRIVER_VERSION}-0ubuntu1" || true
+    if apt-cache madison "$pkg" | awk '{print $3}' | grep -q "^${RECOMMENDED_DRIVER_VERSION}"; then
+      log_wait "Installing $pkg version ${RECOMMENDED_DRIVER_VERSION}"
+      apt install -y "$pkg=${RECOMMENDED_DRIVER_VERSION}" || apt install -y "$pkg=${RECOMMENDED_DRIVER_VERSION}-0ubuntu1" || true
       return
     fi
   done
   # Fallback to latest 575 series
-  log_wait "Exact driver ${REQUIRED_DRIVER_VERSION} not found; installing latest 575 series"
+  log_wait "Exact driver ${RECOMMENDED_DRIVER_VERSION} not found; installing latest 575 series"
   apt install -y nvidia-driver-575-open nvidia-utils-575 || apt install -y nvidia-driver-575 nvidia-utils-575 || true
+}
+
+# Helper: install OS-recommended NVIDIA driver (safer default)
+install_recommended_driver(){
+  log_wait "Installing OS-recommended NVIDIA driver"
+  apt update || true
+  apt install -y ubuntu-drivers-common || true
+  if command -v ubuntu-drivers >/dev/null 2>&1; then
+    ubuntu-drivers autoinstall || true
+  fi
+  # Fallback to common current series on 24.04 if autoinstall not available
+  apt install -y nvidia-driver-560 nvidia-utils-560 || \
+  apt install -y nvidia-driver-555 nvidia-utils-555 || \
+  apt install -y nvidia-driver-550 nvidia-utils-550 || true
+}
+
+# Helper: parse OS-recommended driver package name (prefer -open)
+get_recommended_driver_pkg(){
+  if ! command -v ubuntu-drivers >/dev/null 2>&1; then
+    echo ""
+    return
+  fi
+  local line
+  line=$(ubuntu-drivers devices 2>/dev/null | awk '/recommended/{print; exit}')
+  if echo "$line" | grep -oE 'nvidia-driver-[0-9]+-open' | head -1; then return; fi
+  echo "$line" | grep -oE 'nvidia-driver-[0-9]+' | head -1
+}
+
+# Helper: get currently installed nvidia-driver package
+get_installed_driver_pkg(){
+  dpkg -l | awk '/^ii\s+nvidia-driver-/{print $2; exit}'
+}
+
+# Helper: switch to OS-recommended driver (purge conflicting, install recommended, regen initramfs)
+switch_to_recommended_driver(){
+  local rec_pkg
+  rec_pkg=$(get_recommended_driver_pkg)
+  if [ -z "$rec_pkg" ]; then
+    log_wait "Could not determine recommended driver; using ubuntu-drivers autoinstall"
+    install_recommended_driver
+    return
+  fi
+  log_wait "Switching to recommended NVIDIA driver: $rec_pkg"
+  apt update || true
+  # Ensure kernel headers and dkms are present
+  apt install -y dkms linux-headers-$(uname -r) || true
+  # Remove existing driver packages to avoid conflicts
+  apt purge -y 'nvidia-driver-*' 'nvidia-dkms-*' 'nvidia-utils-*' 'libnvidia-*' || true
+  apt autoremove -y || true
+  # Install recommended package
+  apt install -y "$rec_pkg" || true
+  # Regenerate initramfs and grub
+  update-initramfs -u || true
+  update-grub || true
 }
 
 # Helper: install cuDNN runtime and dev packages
@@ -519,6 +597,9 @@ install_gpu_dependencies(){
   # Update package lists
   apt update
   
+  # Enforce Secure Boot policy before touching NVIDIA drivers
+  check_secure_boot
+  
   # Detect GPU architecture and determine optimal settings
   detect_gpu_architecture
   ensure_nvidia_repo
@@ -529,16 +610,28 @@ install_gpu_dependencies(){
     log_success "NVIDIA drivers detected (current: $CURRENT_DRIVER)"
     # Enforce exact required driver version (unless user opted to keep existing)
     if [ "$ENFORCE_DRIVER_VERSION" = "true" ]; then
-      if [ "$CURRENT_DRIVER" != "$REQUIRED_DRIVER_VERSION" ]; then
-        log_wait "Driver version mismatch (need $REQUIRED_DRIVER_VERSION, found $CURRENT_DRIVER). Installing required version."
+      if [ "$CURRENT_DRIVER" != "$RECOMMENDED_DRIVER_VERSION" ]; then
+        log_wait "Driver version mismatch (need $RECOMMENDED_DRIVER_VERSION, found $CURRENT_DRIVER). Installing required version."
         install_driver_exact
+        DRIVER_SWITCHED=1
       fi
-    else
-      log_wait "Keeping existing NVIDIA driver ($CURRENT_DRIVER); skipping version enforcement"
+    fi
+    # Optionally align with OS-recommended package name (e.g., 580-open)
+    if [ "$ENFORCE_RECOMMENDED_DRIVER" = "true" ]; then
+      INSTALLED_PKG=$(get_installed_driver_pkg)
+      RECOMMENDED_PKG=$(get_recommended_driver_pkg)
+      if [ -n "$RECOMMENDED_PKG" ] && [ "$INSTALLED_PKG" != "$RECOMMENDED_PKG" ]; then
+        log_wait "Installed driver package ($INSTALLED_PKG) differs from OS recommendation ($RECOMMENDED_PKG)"
+        switch_to_recommended_driver
+        DRIVER_SWITCHED=1
+      else
+        log_wait "Installed driver package matches OS recommendation ($INSTALLED_PKG)"
+      fi
     fi
   else
-    log_wait "Installing NVIDIA drivers for $GPU_ARCH architecture (target ${REQUIRED_DRIVER_VERSION})"
-    install_driver_exact
+    log_wait "No NVIDIA driver detected; installing OS-recommended driver"
+    install_recommended_driver
+    DRIVER_SWITCHED=1
   fi
   
   # Install OpenCL support FIRST (required for compilation)
@@ -609,6 +702,10 @@ install_gpu_dependencies(){
   if nvidia-smi >/dev/null 2>&1; then
     echo -e "\n${GREEN}GPU Information:${NC}"
     nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader
+  fi
+  # Mark reboot needed if we switched drivers
+  if [ "${DRIVER_SWITCHED:-0}" = "1" ]; then
+    echo "reboot_required" > /tmp/splendor_gpu_reboot
   fi
 }
 
@@ -864,22 +961,27 @@ displayStatus(){
 }
 
 reboot_countdown(){
-  # Determine readiness using robust detection
-  if gpu_is_ready; then
-    echo -e "\n${GREEN}✅ No reboot required - GPU drivers active${NC}"
-    return
-  fi
-  status=$?
-  # Hardware present but drivers likely inactive
-  if [ "$status" -eq 2 ]; then
-    if [ "$AUTO_REBOOT" = "true" ]; then
-      : # fall through to automatic reboot prompt below
-    else
-      echo -e "\n${ORANGE}⚠️  NVIDIA hardware detected but drivers appear inactive. Please reboot to activate GPU drivers.${NC}"
+  # If we explicitly switched drivers or scheduled SB change, honor auto reboot
+  if [ -f /tmp/splendor_gpu_reboot ] || [ -f /tmp/splendor_secureboot_reboot ]; then
+    NEED_REBOOT=1
+  else
+    # Determine readiness using robust detection
+    if gpu_is_ready; then
+      echo -e "\n${GREEN}✅ No reboot required - GPU drivers active${NC}"
       return
     fi
-  else
-    echo -e "\n${GREEN}✅ No reboot required - no NVIDIA hardware detected or already handled${NC}"
+    status=$?
+    # Hardware present but drivers likely inactive
+    if [ "$status" -eq 2 ]; then
+      NEED_REBOOT=1
+    else
+      echo -e "\n${GREEN}✅ No reboot required - no NVIDIA hardware detected or already handled${NC}"
+      return
+    fi
+  fi
+  # Respect AUTO_REBOOT
+  if [ "$AUTO_REBOOT" != "true" ]; then
+    echo -e "\n${ORANGE}⚠️  Reboot recommended to finalize driver changes${NC}"
     return
   fi
   # At this point, we intend to reboot automatically
@@ -1740,6 +1842,9 @@ usage() {
   echo -e "		 --nopk     Skip validator account import/creation (skip task8)"
   echo -e "\t\t --keep-existing-drivers   Do not enforce/replace NVIDIA driver version (default)"
   echo -e "\t\t --enforce-driver-version  Install pinned NVIDIA driver version if different"
+  echo -e "\t\t --switch-to-recommended-driver  Purge mismatched driver and install OS-recommended (e.g., 580-open)"
+  echo -e "\t\t --allow-secure-boot       Allow Secure Boot (not recommended; NVIDIA may fail)"
+  echo -e "\t\t --auto-disable-secure-boot  Run 'mokutil --disable-validation' and reboot"
   echo -e "\t\t --no-auto-reboot         Do not auto reboot; only warn if needed"
 }
 
@@ -1819,6 +1924,19 @@ handle_options() {
 
       --no-auto-reboot)
       AUTO_REBOOT=false
+      ;;
+
+      --switch-to-recommended-driver)
+      ENFORCE_RECOMMENDED_DRIVER=true
+      ;;
+
+      --allow-secure-boot)
+      ALLOW_SECURE_BOOT=true
+      ENFORCE_SECURE_BOOT_DISABLED=false
+      ;;
+
+      --auto-disable-secure-boot)
+      AUTO_DISABLE_SECURE_BOOT=true
       ;;
 
 

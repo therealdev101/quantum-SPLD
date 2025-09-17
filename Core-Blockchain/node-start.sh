@@ -183,24 +183,17 @@ startValidator(){
 }
 
 gpu_is_ready() {
-  # Return 0 if GPU appears available and usable; 2 if hardware present but driver inactive; 1 if no GPU signals
+  # Strict readiness: driver loaded and NVML can enumerate at least one GPU
   if command -v nvidia-smi >/dev/null 2>&1; then
-    if timeout 3 nvidia-smi -L 2>/dev/null | grep -q "."; then
-      return 0
-    fi
-    if timeout 3 nvidia-smi >/dev/null 2>&1; then
+    if timeout 4 nvidia-smi -L 2>/dev/null | grep -q "."; then
       return 0
     fi
   fi
-  if [ -e /dev/nvidia0 ] || [ -e /dev/nvidiactl ]; then
+  # Secondary: device node and module present
+  if [ -e /dev/nvidia0 ] && lsmod 2>/dev/null | grep -qi '^nvidia\b'; then
     return 0
   fi
-  if lsmod 2>/dev/null | grep -qi '^nvidia\b'; then
-    return 0
-  fi
-  if (lspci 2>/dev/null | grep -qi nvidia) && ldconfig -p 2>/dev/null | grep -qi 'libnvidia'; then
-    return 0
-  fi
+  # Hardware present but driver inactive
   if lspci 2>/dev/null | grep -qi nvidia; then
     return 2
   fi
