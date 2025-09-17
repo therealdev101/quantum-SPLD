@@ -349,6 +349,10 @@ task5(){
 task6(){
   # do make all TASK 6 with automatic GPU compilation and quantum cryptography
   log_wait "Building backend with GPU acceleration and quantum cryptography support" && progress_bar
+  
+  # Install GPU dependencies first (before building)
+  install_gpu_dependencies
+  
   cd node_src
   
   # Set CUDA environment for build
@@ -982,10 +986,7 @@ task6_gpu(){
   # Build GPU acceleration components TASK 6 GPU
   log_wait "Setting up complete GPU acceleration for high-performance RPC" && progress_bar
   
-  # Install GPU dependencies automatically
-  install_gpu_dependencies
-  
-  # Configure GPU environment
+  # Configure GPU environment (dependencies should already be installed by task6)
   configure_gpu_environment
   
   # Check if GPU is available
