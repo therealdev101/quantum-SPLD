@@ -44,7 +44,9 @@ RECOMMENDED_GPU_NAME="RTX 4000 SFF Ada"
 RECOMMENDED_DRIVER_VERSION="575.57.08"
 RECOMMENDED_CUDA_MAJOR_MINOR="12.6"
 
-# Minimum acceptable versions (skip install if met or exceeded)
+# Target versions for installation (skip install if met or exceeded)
+TARGET_DRIVER_VERSION="575.57.08"
+TARGET_CUDA_VERSION="12.6.85"
 MIN_DRIVER_VERSION="575.57.08"
 MIN_CUDA_VERSION="12.6.85"
 
@@ -562,7 +564,89 @@ ensure_nvidia_repo(){
   fi
 }
 
-# Helper: install exact NVIDIA driver version if available
+# Helper: install target NVIDIA driver version (575.57.08)
+install_target_driver_version(){
+  log_wait "Installing target NVIDIA driver version $TARGET_DRIVER_VERSION"
+  
+  # Try to install exact version first
+  local pkg
+  for pkg in nvidia-driver-575-open nvidia-driver-575; do
+    if apt-cache madison "$pkg" | awk '{print $3}' | grep -q "^${TARGET_DRIVER_VERSION}"; then
+      log_wait "Installing $pkg version ${TARGET_DRIVER_VERSION}"
+      if apt install -y "$pkg=${TARGET_DRIVER_VERSION}" || apt install -y "$pkg=${TARGET_DRIVER_VERSION}-0ubuntu1"; then
+        log_success "Target driver version $TARGET_DRIVER_VERSION installed successfully"
+        DRIVER_SWITCHED=1
+        return
+      fi
+    fi
+  done
+  
+  # If exact version not available, install latest 575 series
+  log_wait "Exact driver ${TARGET_DRIVER_VERSION} not available; installing latest 575 series"
+  if apt install -y nvidia-driver-575-open nvidia-utils-575 || apt install -y nvidia-driver-575 nvidia-utils-575; then
+    log_success "NVIDIA driver 575 series installed successfully"
+    DRIVER_SWITCHED=1
+  else
+    log_error "Failed to install NVIDIA driver 575 series"
+    return 1
+  fi
+}
+
+# Helper: install target CUDA version (12.6.85)
+install_target_cuda_version(){
+  log_wait "Installing target CUDA version $TARGET_CUDA_VERSION"
+  
+  # Use the specific CUDA 12.6.85 installer
+  CUDA_URL="https://developer.download.nvidia.com/compute/cuda/12.6.2/local_installers/cuda_12.6.2_560.35.03_linux.run"
+  CUDA_FILE="cuda_12.6.2_560.35.03_linux.run"
+  
+  # Download CUDA installer if not already present
+  if [ ! -f "/tmp/$CUDA_FILE" ]; then
+    log_wait "Downloading CUDA $TARGET_CUDA_VERSION installer"
+    cd /tmp
+    if wget "$CUDA_URL" -O "$CUDA_FILE"; then
+      chmod +x "$CUDA_FILE"
+      log_success "CUDA installer downloaded successfully"
+    else
+      log_error "Failed to download CUDA installer"
+      return 1
+    fi
+  else
+    log_success "CUDA installer already downloaded"
+  fi
+  
+  # Install CUDA toolkit (skip driver installation if already installed)
+  log_wait "Installing CUDA toolkit $TARGET_CUDA_VERSION (this may take several minutes)"
+  if nvidia-smi >/dev/null 2>&1; then
+    # Driver already installed, install toolkit only
+    if /tmp/$CUDA_FILE --silent --toolkit --override; then
+      log_success "CUDA toolkit $TARGET_CUDA_VERSION installed successfully"
+    else
+      log_error "CUDA toolkit installation failed"
+      return 1
+    fi
+  else
+    # Install both driver and toolkit
+    if /tmp/$CUDA_FILE --silent --driver --toolkit --override; then
+      log_success "CUDA toolkit and driver $TARGET_CUDA_VERSION installed successfully"
+      DRIVER_SWITCHED=1
+    else
+      log_error "CUDA installation failed"
+      return 1
+    fi
+  fi
+  
+  # Verify CUDA installation
+  if [ -f "/usr/local/cuda/bin/nvcc" ]; then
+    CUDA_INSTALLED_VERSION=$(/usr/local/cuda/bin/nvcc --version | grep "release" | awk '{print $6}' | cut -c2-)
+    log_success "CUDA $CUDA_INSTALLED_VERSION installed and verified successfully"
+  else
+    log_error "CUDA installation verification failed"
+    return 1
+  fi
+}
+
+# Helper: install exact NVIDIA driver version if available (legacy function)
 install_driver_exact(){
   local pkg
   for pkg in nvidia-driver-575-open nvidia-driver-575; do
@@ -728,13 +812,18 @@ install_gpu_dependencies(){
   # Clean up any broken NVIDIA deps prior to installs
   fix_broken_nvidia_stack
   
-  # Driver: skip install if current driver version meets minimum
+  # Driver: skip install if current driver version meets target or is newer
   DRV_VER=$(get_current_driver_version)
-  if [ -n "$DRV_VER" ] && version_ge "$DRV_VER" "$MIN_DRIVER_VERSION"; then
-    log_success "NVIDIA driver version $DRV_VER ≥ $MIN_DRIVER_VERSION (OK). Skipping driver changes"
+  if [ -n "$DRV_VER" ]; then
+    if version_ge "$DRV_VER" "$TARGET_DRIVER_VERSION"; then
+      log_success "NVIDIA driver version $DRV_VER ≥ $TARGET_DRIVER_VERSION (target: $TARGET_DRIVER_VERSION). Skipping driver installation"
+    else
+      log_wait "NVIDIA driver below target (found: $DRV_VER, target: $TARGET_DRIVER_VERSION). Installing target driver version"
+      install_target_driver_version
+    fi
   else
-    log_wait "NVIDIA driver missing or below minimum (found: ${DRV_VER:-none}, need ≥ $MIN_DRIVER_VERSION). Installing recommended driver"
-    ensure_driver_580_or_recommended
+    log_wait "NVIDIA driver not found. Installing target driver version $TARGET_DRIVER_VERSION"
+    install_target_driver_version
   fi
   
   # Install OpenCL support FIRST (required for compilation)
@@ -746,18 +835,18 @@ install_gpu_dependencies(){
     apt install -y nvidia-opencl-dev || log_wait "NVIDIA OpenCL will be available after reboot"
   fi
   
-  # CUDA: skip install if version meets minimum
+  # CUDA: skip install if version meets target or is newer
   CUDA_VER_CUR=$(get_current_cuda_version)
   if [ -n "$CUDA_VER_CUR" ]; then
-    if version_ge "$CUDA_VER_CUR" "$MIN_CUDA_VERSION"; then
-      log_success "CUDA version $CUDA_VER_CUR ≥ $MIN_CUDA_VERSION (OK). Skipping CUDA install"
+    if version_ge "$CUDA_VER_CUR" "$TARGET_CUDA_VERSION"; then
+      log_success "CUDA version $CUDA_VER_CUR ≥ $TARGET_CUDA_VERSION (target: $TARGET_CUDA_VERSION). Skipping CUDA installation"
     else
-      log_wait "CUDA below minimum (found $CUDA_VER_CUR, need ≥ $MIN_CUDA_VERSION). Upgrading"
-      install_cuda_from_runfile
+      log_wait "CUDA below target (found $CUDA_VER_CUR, target: $TARGET_CUDA_VERSION). Installing target CUDA version"
+      install_target_cuda_version
     fi
   else
-    log_wait "CUDA toolkit not found; installing"
-    install_cuda_from_runfile
+    log_wait "CUDA toolkit not found. Installing target CUDA version $TARGET_CUDA_VERSION"
+    install_target_cuda_version
   fi
   
   # Install cuDNN after CUDA toolkit
