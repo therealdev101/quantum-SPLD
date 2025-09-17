@@ -401,15 +401,20 @@ finalize(){
       ;;
   esac
   
-  # Check GPU status
-  if timeout 3 nvidia-smi >/dev/null 2>&1; then
+  # Check GPU status (use robust detector + earlier GPU_STATUS)
+  if gpu_is_ready; then
     echo -e "${GREEN}✅ GPU: Active and ready${NC}"
   else
-    echo -e "${ORANGE}⚠️  GPU: Will activate after reboot${NC}"
+    status=$?
+    if [ "$status" -eq 2 ]; then
+      echo -e "${ORANGE}⚠️  GPU: Hardware detected but driver inactive${NC}"
+    else
+      echo -e "${ORANGE}ℹ️  GPU: No NVIDIA GPU detected${NC}"
+    fi
   fi
   
   # Check if GPU drivers need reboot and offer reboot
-  if [ "$GPU_STATUS" = "pending_reboot" ] && lspci | grep -i nvidia >/dev/null 2>&1; then
+  if [ "$GPU_STATUS" = "pending_activation" ] && lspci | grep -i nvidia >/dev/null 2>&1; then
     echo -e "\n${ORANGE}╔══════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${ORANGE}║                    GPU REBOOT RECOMMENDED                   ║${NC}"
     echo -e "${ORANGE}║                                                              ║${NC}"
