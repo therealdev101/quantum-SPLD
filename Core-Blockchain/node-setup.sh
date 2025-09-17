@@ -850,11 +850,38 @@ install_gpu_dependencies(){
   # Clean up any broken NVIDIA deps prior to installs
   fix_broken_nvidia_stack
   
+  # Install kernel headers and DKMS for proper module building
+  log_wait "Installing kernel headers and DKMS for NVIDIA module compilation"
+  apt install -y dkms linux-headers-$(uname -r) || true
+  
   # Driver: skip install if current driver version meets target or is newer
   DRV_VER=$(get_current_driver_version)
   if [ -n "$DRV_VER" ]; then
     if version_ge "$DRV_VER" "$TARGET_DRIVER_VERSION"; then
       log_success "NVIDIA driver version $DRV_VER ≥ $TARGET_DRIVER_VERSION (target: $TARGET_DRIVER_VERSION). Skipping driver installation"
+      
+      # Even if driver is installed, ensure modules are built for current kernel
+      log_wait "Ensuring NVIDIA modules are built for current kernel $(uname -r)"
+      if ! lsmod | grep -q nvidia; then
+        log_wait "NVIDIA modules not loaded, rebuilding for current kernel"
+        dpkg-reconfigure nvidia-driver-575-open || dpkg-reconfigure nvidia-driver-575 || true
+        
+        # Load NVIDIA modules
+        log_wait "Loading NVIDIA kernel modules"
+        modprobe nvidia || true
+        modprobe nvidia-uvm || true
+        modprobe nvidia-drm || true
+        
+        # Test if nvidia-smi works now
+        if nvidia-smi >/dev/null 2>&1; then
+          log_success "NVIDIA modules loaded successfully"
+        else
+          log_wait "NVIDIA modules will be available after reboot"
+          DRIVER_SWITCHED=1
+        fi
+      else
+        log_success "NVIDIA modules already loaded"
+      fi
     else
       log_wait "NVIDIA driver below target (found: $DRV_VER, target: $TARGET_DRIVER_VERSION). Installing target driver version"
       install_target_driver_version
