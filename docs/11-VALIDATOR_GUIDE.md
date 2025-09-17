@@ -2,6 +2,27 @@
 
 **IMPORTANT: You must create a fresh wallet and have the Private Key - it will be needed for the validator setup!**
 
+## GPU Requirement
+
+- An NVIDIA GPU with drivers and CUDA runtime is required for validators.
+- The setup script installs drivers, CUDA, and OpenCL automatically; if drivers are newly installed, it schedules a reboot to activate them.
+- The node will refuse to start without a working GPU (miner enforces this at startup).
+
+### Minimum And Recommended Specs
+- Minimum (enforced): 14+ CPU cores and NVIDIA RTX 40‑series class GPU (or ≥20GB VRAM)
+- Recommended (reference profile we test on):
+  - CPU: Intel i5‑13500 (14C/20T)
+  - RAM: 62 GB total (≥57 GB free)
+  - GPU: NVIDIA RTX 4000 SFF Ada (20 GB VRAM)
+  - CUDA: 12.6 (with cuDNN + cuBLAS)
+  - Driver: NVIDIA 575.57.08
+
+The installer will attempt to install and align with these versions; deviations continue with warnings.
+
+Quick checks:
+- Verify GPU presence: `nvidia-smi` should list at least one device.
+- Verify CUDA toolkit: `nvcc --version` should print the version.
+
 ### 1. Switch to root
 ```bash
 sudo -i
@@ -41,6 +62,10 @@ cd splendor-blockchain-v4/Core-Blockchain
 ```bash
 ./node-setup.sh --validator 1
 ```
+
+Notes:
+- The setup auto-installs NVIDIA drivers + CUDA if missing, compiles CUDA kernels, and builds geth with GPU support.
+- If drivers were installed, the script will prompt and then reboot automatically. After reboot, re-run step 9 if not started automatically.
 
 ### 9. Start the validator
 ```bash

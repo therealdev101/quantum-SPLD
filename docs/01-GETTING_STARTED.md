@@ -5,7 +5,21 @@ Get up and running with Splendor Blockchain V4 in minutes.
 ## Prerequisites
 
 - **Operating System**: Ubuntu 20.04+ LTS (recommended) or Windows Server 2019+
-- **Hardware**: 16+ CPU cores, 64GB+ RAM, NVMe SSD, NVIDIA GPU (optional but recommended)
+- **Hardware**: 16+ CPU cores, 64GB+ RAM, NVMe SSD, NVIDIA GPU (required)
+
+### Minimum And Recommended Hardware
+
+- Minimum (enforced):
+  - CPU: 14+ physical cores
+  - GPU: NVIDIA RTX 40‑series class or ≥20GB VRAM (GPU required)
+- Recommended (reference profile we test on):
+  - CPU: Intel i5‑13500 (14C/20T, up to 4.8 GHz)
+  - RAM: 62 GB total (≥57 GB free)
+  - GPU: NVIDIA RTX 4000 SFF Ada (20 GB VRAM)
+  - CUDA: 12.6 (with cuDNN + cuBLAS)
+  - Driver: NVIDIA 575.57.08
+
+The installer targets the recommended versions automatically; if different versions are present, setup continues but may log warnings.
 - **Software**: Node.js 16+, Go 1.22+, Git
 
 ## Quick Setup (Automated)
@@ -27,6 +41,12 @@ This script automatically:
 - Compiles GPU kernels and links with geth
 - Configures environment variables
 - Sets up AI optimization (MobileLLM-R1)
+
+## Validator GPU Requirement
+
+- GPU acceleration is mandatory. Nodes without a working NVIDIA GPU stack will exit during startup with a fatal error.
+- Ensure `nvidia-smi` works and CUDA/OpenCL runtimes are installed before starting.
+- The miner enforces GPU availability via the hybrid processor; if GPU init fails or is disabled, startup aborts.
 
 ### 3. Start Node
 ```bash
@@ -115,10 +135,11 @@ tmux attach -t node1
 
 **Node won't start?**
 - Check system requirements
-- Verify CUDA installation: `nvidia-smi`
+- Verify GPU availability: `nvidia-smi` must show at least one device
+- Verify CUDA installation: `nvcc --version`
 - Check ports: `netstat -tulpn | grep :80`
 
-**GPU not detected?**
+**GPU not detected (startup fails)?**
 - Ensure NVIDIA drivers installed
 - Reboot after driver installation
 - Check CUDA path: `nvcc --version`
@@ -138,7 +159,7 @@ On geth startup you should see “AI-powered GPU load balancing activated”. Th
 
 ## Performance Targets
 
-- **Entry Level**: 100K+ TPS (CPU only)
+- **Entry Level**: 100K+ TPS (entry GPU)
 - **Mid Range**: 500K+ TPS (RTX 3060+)
 - **High End**: 1M+ TPS (RTX 4080+)
 - **Extreme**: 2.35M TPS (RTX 4090+)

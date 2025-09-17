@@ -196,6 +196,14 @@ task6(){
     export PQ_CGO_LDFLAGS=""
   fi
   
+  # Preflight: require NVIDIA GPU stack for validator nodes
+  if [ "$1" = "--require-gpu" ] || [ "$2" = "--require-gpu" ] || [ -f "$BASE_DIR/Core-Blockchain/chaindata/.enforce_gpu" ]; then
+    if ! nvidia-smi >/dev/null 2>&1; then
+      log_error "GPU is required but not detected. Install drivers/CUDA and reboot."
+      exit 1
+    fi
+  fi
+
   # First, compile CUDA kernels if CUDA is available
   if command -v nvcc >/dev/null 2>&1; then
     log_wait "Compiling CUDA kernels for GPU acceleration"
@@ -339,6 +347,48 @@ install_cuda_from_runfile(){
   fi
 }
 
+# Helper: add NVIDIA CUDA repo keyring for exact packages
+ensure_nvidia_repo(){
+  . /etc/os-release
+  case "$VERSION_ID" in
+    24.04) DIST="ubuntu2404" ;;
+    22.04) DIST="ubuntu2204" ;;
+    20.04) DIST="ubuntu2004" ;;
+    *) DIST="ubuntu2204" ;;
+  esac
+  if ! dpkg -l | grep -q cuda-keyring; then
+    log_wait "Adding NVIDIA CUDA repository for $DIST"
+    wget -qO /tmp/cuda-keyring.deb https://developer.download.nvidia.com/compute/cuda/repos/$DIST/x86_64/cuda-keyring_1.1-1_all.deb || true
+    if [ -f /tmp/cuda-keyring.deb ]; then
+      dpkg -i /tmp/cuda-keyring.deb || true
+      apt update || true
+    else
+      log_wait "Could not fetch CUDA keyring; continuing with existing repos"
+    fi
+  fi
+}
+
+# Helper: install exact NVIDIA driver version if available
+install_driver_exact(){
+  local pkg
+  for pkg in nvidia-driver-575-open nvidia-driver-575; do
+    if apt-cache madison "$pkg" | awk '{print $3}' | grep -q "^${REQUIRED_DRIVER_VERSION}"; then
+      log_wait "Installing $pkg version ${REQUIRED_DRIVER_VERSION}"
+      apt install -y "$pkg=${REQUIRED_DRIVER_VERSION}" || apt install -y "$pkg=${REQUIRED_DRIVER_VERSION}-0ubuntu1" || true
+      return
+    fi
+  done
+  # Fallback to latest 575 series
+  log_wait "Exact driver ${REQUIRED_DRIVER_VERSION} not found; installing latest 575 series"
+  apt install -y nvidia-driver-575-open nvidia-utils-575 || apt install -y nvidia-driver-575 nvidia-utils-575 || true
+}
+
+# Helper: install cuDNN runtime and dev packages
+install_cudnn_exact(){
+  log_wait "Installing cuDNN runtime and dev packages"
+  apt install -y libcudnn9 libcudnn9-dev || apt install -y libcudnn9-cuda libcudnn9-cuda-dev || true
+}
+
 install_gpu_dependencies(){
   # Install GPU dependencies automatically for BOTH RPC and VALIDATOR TASK 6A
   log_wait "Installing complete GPU acceleration stack (NVIDIA drivers + CUDA + OpenCL)" && progress_bar
@@ -348,27 +398,20 @@ install_gpu_dependencies(){
   
   # Detect GPU architecture and determine optimal settings
   detect_gpu_architecture
+  ensure_nvidia_repo
   
   # Check if NVIDIA drivers are already installed
   if nvidia-smi >/dev/null 2>&1; then
-    log_success "NVIDIA drivers already installed and working"
     CURRENT_DRIVER=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader,nounits | head -1)
-    echo "Current driver version: $CURRENT_DRIVER"
+    log_success "NVIDIA drivers detected (current: $CURRENT_DRIVER)"
+    # Enforce exact required driver version
+    if [ "$CURRENT_DRIVER" != "$REQUIRED_DRIVER_VERSION" ]; then
+      log_wait "Driver version mismatch (need $REQUIRED_DRIVER_VERSION, found $CURRENT_DRIVER). Installing required version."
+      install_driver_exact
+    fi
   else
-    log_wait "Installing NVIDIA drivers for $GPU_ARCH architecture"
-    
-    # Install appropriate NVIDIA drivers based on detected architecture
-    case $GPU_ARCH in
-      "Ada Lovelace")
-        apt install -y nvidia-driver-575-open nvidia-utils-575 || apt install -y nvidia-driver-575 nvidia-utils-575
-        ;;
-      "Ampere"|"Turing"|"Professional")
-        apt install -y nvidia-driver-535 nvidia-utils-535
-        ;;
-      *)
-        ubuntu-drivers autoinstall || apt install -y nvidia-driver-535 nvidia-utils-535
-        ;;
-    esac
+    log_wait "Installing NVIDIA drivers for $GPU_ARCH architecture (target ${REQUIRED_DRIVER_VERSION})"
+    install_driver_exact
   fi
   
   # Install OpenCL support FIRST (required for compilation)
@@ -394,6 +437,9 @@ install_gpu_dependencies(){
     # Install CUDA from official installer
     install_cuda_from_runfile
   fi
+  
+  # Install cuDNN after CUDA toolkit
+  install_cudnn_exact
   
   # Install additional build tools
   log_wait "Installing additional build tools"
@@ -497,6 +543,8 @@ task6_gpu(){
   if nvidia-smi >/dev/null 2>&1; then
     log_success "NVIDIA GPU detected successfully"
     nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits
+    # If drivers are active now, run strict validation (otherwise validation runs after reboot)
+    validate_strict_requirements || exit 1
   else
     log_wait "GPU not detected or drivers need reboot - GPU features will activate after reboot"
   fi
@@ -767,6 +815,10 @@ createRpc(){
 }
 
 createValidator(){
+  # Enforce GPU requirement for validators (preflight check in task6)
+  mkdir -p "$BASE_DIR/Core-Blockchain/chaindata"
+  touch "$BASE_DIR/Core-Blockchain/chaindata/.enforce_gpu"
+
   task1
   task2
   task3
@@ -1626,3 +1678,72 @@ fi
 
 # bootstraping
 finalize
+# Hardware/software requirements
+# Minimal hard requirements (must pass): 14+ CPU cores and NVIDIA 40-series class (or >=20GB VRAM)
+REQUIRED_CPU_CORES=14
+MIN_GPU_VRAM_MB=20000
+
+# Recommended reference profile (best-effort install/validate; warnings if different)
+RECOMMENDED_GPU_NAME="RTX 4000 SFF Ada"
+RECOMMENDED_DRIVER_VERSION="575.57.08"
+RECOMMENDED_CUDA_MAJOR_MINOR="12.6"
+
+validate_strict_requirements(){
+  log_wait "Validating strict hardware/software requirements"
+
+  # CPU topology: require >= 14 cores (no specific model)
+  CPU_CORES=$(lscpu | awk -F: '/^CPU\(s\)/ {gsub(/^ +| +$/,"", $2); print $2}' | head -1)
+  if [ -z "$CPU_CORES" ]; then
+    # fallback: cores per socket * sockets
+    CoresPerSocket=$(lscpu | awk -F: '/Core\(s\) per socket/ {gsub(/^ +| +$/,"", $2); print $2}')
+    Sockets=$(lscpu | awk -F: '/Socket\(s\)/ {gsub(/^ +| +$/,"", $2); print $2}')
+    CPU_CORES=$(( CoresPerSocket * Sockets ))
+  fi
+  if [ "$CPU_CORES" -lt "$REQUIRED_CPU_CORES" ]; then
+    log_error "Insufficient CPU cores: required >= $REQUIRED_CPU_CORES, found $CPU_CORES"; exit 1
+  fi
+
+  # NVIDIA GPU checks
+  if ! command -v nvidia-smi >/dev/null 2>&1; then
+    log_error "nvidia-smi not found; install NVIDIA drivers first"; exit 1
+  fi
+
+  GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader | head -1)
+  GPU_MEM_MB=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | head -1)
+  DRIVER_VER=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -1)
+
+  # Hard requirement: at least RTX 40-class or >=20GB VRAM
+  if ! echo "$GPU_NAME" | grep -qiE "RTX 40|Ada|4090|4080|4070|4060|4000" && [ "$GPU_MEM_MB" -lt "$MIN_GPU_VRAM_MB" ]; then
+    log_error "GPU requirement not met: need NVIDIA RTX 40-class or >=20GB VRAM. Found '$GPU_NAME' with ${GPU_MEM_MB}MB VRAM"; exit 1
+  fi
+
+  # Recommend: specific model and versions (warnings only)
+  if ! echo "$GPU_NAME" | grep -qi "$RECOMMENDED_GPU_NAME"; then
+    log_wait "Warning: Recommended GPU is '$RECOMMENDED_GPU_NAME', found '$GPU_NAME' (continuing)"
+  fi
+  if [ "$DRIVER_VER" != "$RECOMMENDED_DRIVER_VERSION" ]; then
+    log_wait "Warning: Recommended NVIDIA driver is $RECOMMENDED_DRIVER_VERSION, found $DRIVER_VER (continuing)"
+  fi
+
+  # CUDA toolkit version
+  if command -v nvcc >/dev/null 2>&1; then
+    CUDA_VER=$(nvcc --version | awk -F'release ' '/release/ {print $2}' | awk '{print $1}' | head -1)
+    if [ "${CUDA_VER%%.*}.${CUDA_VER#*.}" != "$RECOMMENDED_CUDA_MAJOR_MINOR" ]; then
+      log_wait "Warning: Recommended CUDA version is $RECOMMENDED_CUDA_MAJOR_MINOR, found $CUDA_VER (continuing)"
+    fi
+  else
+    log_error "nvcc not found; CUDA toolkit not installed"; exit 1
+  fi
+
+  # cuBLAS check
+  if [ ! -f "/usr/local/cuda/lib64/libcublas.so" ] && [ ! -f "/usr/local/cuda/lib64/libcublas.so.12" ]; then
+    log_wait "Warning: cuBLAS not found in /usr/local/cuda/lib64 (expected with CUDA toolkit)"
+  fi
+
+  # cuDNN check (common locations)
+  if [ ! -f "/usr/lib/x86_64-linux-gnu/libcudnn.so" ] && [ ! -f "/usr/lib/x86_64-linux-gnu/libcudnn.so.9" ] && [ ! -f "/usr/local/cuda/lib64/libcudnn.so" ]; then
+    log_wait "Warning: cuDNN not found; install cuDNN for CUDA $RECOMMENDED_CUDA_MAJOR_MINOR for best performance"
+  fi
+
+  log_success "Strict requirements verified successfully"
+}

@@ -250,24 +250,26 @@ func newWorker(config *Config, chainConfig *params.ChainConfig, engine consensus
 		hybridMaxBatchSize:     200000,
 	}
 
-	// Initialize hybrid processor for GPU acceleration
+	// Initialize hybrid processor for GPU acceleration (required)
 	hybridProcessor := hybrid.GetGlobalHybridProcessor()
-	if hybridProcessor != nil {
-		worker.hybridProcessor = hybridProcessor
-		if config := hybridProcessor.GetConfig(); config != nil {
-			// Always set, zero disables TPS-based adjustment
-			worker.hybridThroughputTarget = config.ThroughputTarget
-			if config.GPUConfig != nil && config.GPUConfig.MaxBatchSize > 0 {
-				worker.hybridMaxBatchSize = config.GPUConfig.MaxBatchSize
-			}
-		}
-		// Check if GPU is enabled by looking at the hybrid processor's configuration
-		stats := hybridProcessor.GetStats()
-		worker.gpuEnabled = stats.GPUProcessed > 0 || stats.GPUUtilization >= 0
-		log.Info("Miner GPU acceleration initialized", "enabled", worker.gpuEnabled)
-	} else {
-		log.Info("Miner running in CPU-only mode")
+	if hybridProcessor == nil {
+		log.Crit("GPU acceleration required but not available: hybrid processor is nil. Ensure GPU drivers and GPU build are installed and enabled.")
 	}
+	worker.hybridProcessor = hybridProcessor
+	if config := hybridProcessor.GetConfig(); config != nil {
+		// Enforce GPU requirement via config flag (GPU init failure disables this flag)
+		if !config.EnableGPU {
+			log.Crit("GPU acceleration required but disabled or failed to initialize. Check GPU drivers, CUDA/OpenCL runtime, and build flags.")
+		}
+		// Always set, zero disables TPS-based adjustment
+		worker.hybridThroughputTarget = config.ThroughputTarget
+		if config.GPUConfig != nil && config.GPUConfig.MaxBatchSize > 0 {
+			worker.hybridMaxBatchSize = config.GPUConfig.MaxBatchSize
+		}
+	}
+	// If we reached here, GPU is required and considered enabled
+	worker.gpuEnabled = true
+	log.Info("Miner GPU acceleration initialized", "enabled", worker.gpuEnabled)
 
 	// Environment overrides; accept zero for THROUGHPUT_TARGET to disable adjustment
 	if val, ok := os.LookupEnv("THROUGHPUT_TARGET"); ok {
@@ -941,44 +943,69 @@ func (w *worker) commitTransactions(txs *types.TransactionsByPriceAndNonce, coin
 			tempTxs.Shift()
 		}
 
-		// Process batch with GPU if we have enough transactions
-		if len(txBatch) >= w.batchThreshold/2 { // Use GPU for batches >= 500 transactions (1000/2)
-			batchStart := time.Now()
-			log.Debug("Processing transaction batch with GPU acceleration", "batchSize", len(txBatch))
+        // Process batch with GPU if we have enough transactions
+        if len(txBatch) >= w.batchThreshold/2 { // Use GPU for batches >= 500 transactions (1000/2)
+            batchStart := time.Now()
+            log.Debug("Processing transaction batch with GPU acceleration", "batchSize", len(txBatch))
 
-			// Use hybrid processor for GPU-accelerated prevalidation
-			err := w.hybridProcessor.ProcessTransactionsBatch(txBatch, func(results []*hybrid.TransactionResult, err error) {
-				if err != nil {
-					log.Warn("GPU batch processing failed, falling back to sequential", "error", err)
-					return
-				}
+            // Track callback outcome explicitly to avoid relying on returned error
+            gpuSuccess := false
+            gpuErrMsg := ""
 
-				// Apply GPU-validated transactions sequentially (EVM execution still needs to be sequential for state consistency)
-				for i, result := range results {
-					if result.Valid && i < len(txBatch) {
-						// GPU validated the transaction, now apply it to state
-						w.current.state.Prepare(txBatch[i].Hash(), w.current.tcount)
-						logs, err := w.commitTransaction(txBatch[i], coinbase)
-						if err == nil {
-							coalescedLogs = append(coalescedLogs, logs...)
-							w.current.tcount++
-						}
-					}
-				}
-			})
+            // Use hybrid processor for GPU-accelerated prevalidation
+            _ = w.hybridProcessor.ProcessTransactionsBatch(txBatch, func(results []*hybrid.TransactionResult, err error) {
+                if err != nil {
+                    gpuErrMsg = err.Error()
+                    return
+                }
 
-			// Update batch performance metrics
-			batchDuration := time.Since(batchStart)
-			w.updateBatchPerformance(len(txBatch), batchDuration)
+                // Apply GPU-validated transactions sequentially (EVM execution still needs to be sequential for state consistency)
+                for i, result := range results {
+                    if result.Valid && i < len(txBatch) {
+                        w.current.state.Prepare(txBatch[i].Hash(), w.current.tcount)
+                        logs, err := w.commitTransaction(txBatch[i], coinbase)
+                        if err == nil {
+                            coalescedLogs = append(coalescedLogs, logs...)
+                            w.current.tcount++
+                        }
+                    }
+                }
+                gpuSuccess = true
+            })
 
-			if err != nil {
-				log.Warn("Failed to submit GPU batch, falling back to sequential processing", "error", err)
-			} else {
-				// GPU batch processing completed, continue with remaining transactions sequentially
-				txs = tempTxs
-				log.Debug("GPU batch processing completed", "batchSize", len(txBatch), "duration", batchDuration)
-			}
-		}
+            // Update batch performance metrics
+            batchDuration := time.Since(batchStart)
+            w.updateBatchPerformance(len(txBatch), batchDuration)
+
+            if !gpuSuccess {
+                // Fallback: apply collected transactions sequentially to avoid drops
+                log.Warn("GPU batch processing failed; applying sequentially", "error", gpuErrMsg, "batchSize", len(txBatch))
+                for _, tx := range txBatch {
+                    // Re-run basic validations as in collection
+                    from, _ := types.Sender(w.current.signer, tx)
+                    if tx.Protected() && !w.chainConfig.IsEIP155(w.current.header.Number) {
+                        continue
+                    }
+                    if w.isPoSA {
+                        if err := w.posa.ValidateTx(from, tx, w.current.header, w.current.state); err != nil {
+                            continue
+                        }
+                    }
+                    w.current.state.Prepare(tx.Hash(), w.current.tcount)
+                    logs, err := w.commitTransaction(tx, coinbase)
+                    if err == nil {
+                        coalescedLogs = append(coalescedLogs, logs...)
+                        w.current.tcount++
+                    }
+                }
+                // In both success and fallback, the tempTxs iterator already advanced; continue with remaining
+                txs = tempTxs
+            } else {
+                // GPU batch processing completed, continue with remaining transactions sequentially
+                txs = tempTxs
+                log.Debug("GPU batch processing completed", "batchSize", len(txBatch), "duration", batchDuration)
+            }
+        }
 	}
 
 	// Continue with sequential processing for remaining transactions
