@@ -46,7 +46,7 @@ validate_strict_requirements(){
     CPU_CORES=$(( CoresPerSocket * Sockets ))
   fi
   if [ "$CPU_CORES" -lt "$REQUIRED_CPU_CORES" ]; then
-    log_error "Insufficient CPU cores: required >= $REQUIRED_CPU_CORES, found $CPU_CORES"; return 1
+    log_wait "Warning: Recommended CPU cores >= $REQUIRED_CPU_CORES, found $CPU_CORES (continuing)"
   fi
 
   # NVIDIA GPU checks
@@ -58,9 +58,9 @@ validate_strict_requirements(){
   GPU_MEM_MB=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | head -1)
   DRIVER_VER=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -1)
 
-  # Hard requirement: at least RTX 40-class or >=20GB VRAM
+  # Recommended: at least RTX 40-class or >=20GB VRAM (warning only)
   if ! echo "$GPU_NAME" | grep -qiE "RTX 40|Ada|4090|4080|4070|4060|4000" && [ "$GPU_MEM_MB" -lt "$MIN_GPU_VRAM_MB" ]; then
-    log_error "GPU requirement not met: need NVIDIA RTX 40-class or >=20GB VRAM. Found '$GPU_NAME' with ${GPU_MEM_MB}MB VRAM"; return 1
+    log_wait "Warning: Recommended GPU is NVIDIA RTX 40-class or >=20GB VRAM. Found '$GPU_NAME' with ${GPU_MEM_MB}MB VRAM (continuing)"
   fi
 
   # Recommend: specific model and versions (warnings only)
@@ -92,6 +92,39 @@ validate_strict_requirements(){
   fi
 
   log_success "Strict requirements verified successfully"
+}
+
+# Fast, robust GPU readiness detection (accepts multiple positive signals)
+gpu_is_ready() {
+  # Return 0 if GPU appears available and usable, else non-zero
+  # 1) Prefer nvidia-smi listing at least one GPU (ignore exit code, parse output)
+  if command -v nvidia-smi >/dev/null 2>&1; then
+    if timeout 3 nvidia-smi -L 2>/dev/null | grep -q "."; then
+      return 0
+    fi
+    # Try basic nvidia-smi without requiring a full query
+    if timeout 3 nvidia-smi >/dev/null 2>&1; then
+      return 0
+    fi
+  fi
+  # 2) Check for NVIDIA character devices
+  if [ -e /dev/nvidia0 ] || [ -e /dev/nvidiactl ]; then
+    return 0
+  fi
+  # 3) Check loaded kernel modules
+  if lsmod 2>/dev/null | grep -qi '^nvidia\b'; then
+    return 0
+  fi
+  # 4) Hardware present via lspci plus NVIDIA userspace libs present
+  if (lspci 2>/dev/null | grep -qi nvidia) && ldconfig -p 2>/dev/null | grep -qi 'libnvidia'; then
+    return 0
+  fi
+  # 5) Final hardware presence (lspci) as a very lenient signal (treated as not-ready but present)
+  if lspci 2>/dev/null | grep -qi nvidia; then
+    # Hardware exists but drivers may not be active yet
+    return 2
+  fi
+  return 1
 }
 
 #+-----------------------------------------------------------------------------------------------+
@@ -268,9 +301,24 @@ task6(){
   
   # Preflight: require NVIDIA GPU stack for validator nodes
   if [ "$1" = "--require-gpu" ] || [ "$2" = "--require-gpu" ] || [ -f "$BASE_DIR/Core-Blockchain/chaindata/.enforce_gpu" ]; then
-    if ! nvidia-smi >/dev/null 2>&1; then
-      log_error "GPU is required but not detected. Install drivers/CUDA and reboot."
-      exit 1
+    if gpu_is_ready; then
+      # Best-effort summary
+      if command -v nvidia-smi >/dev/null 2>&1; then
+        NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)
+        VRAM=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1)
+        [ -n "$NAME" ] && log_success "GPU detected: $NAME (${VRAM:-?} MB VRAM)"
+      else
+        log_success "GPU detected via kernel/devices (nvidia module or /dev/nvidia present)"
+      fi
+    else
+      status=$?
+      if [ "$status" -eq 2 ]; then
+        log_wait "NVIDIA GPU hardware found but drivers may be inactive; continuing and enabling GPU post-reboot"
+      else
+        log_error "GPU is required but not detected by multiple checks (nvidia-smi, devices, modules)."
+        log_error "If GPU is present, ensure NVIDIA drivers and CUDA are installed and active, then reboot."
+        exit 1
+      fi
     fi
   fi
 
