@@ -43,9 +43,6 @@ __global__ void keccak256_batch_kernel(
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= batch_size) return;
     
-    // Initialize Keccak state
-    uint64_t state[KECCAK_STATE_SIZE] = {0};
-    
     // Get input for this thread
     uint8_t* input = &input_data[idx * 256]; // Max 256 bytes per input
     uint32_t length = input_lengths[idx];
