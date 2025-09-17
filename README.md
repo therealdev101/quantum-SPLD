@@ -74,7 +74,8 @@ Splendor Blockchain V4 integrates post‑quantum cryptography, native x402 micro
 **Block 21018 (824,000 TPS) - Complete Verification:**
 - **Full Block Data**: [block-21018.json.tar.gz](https://s3.us-east-1.amazonaws.com/files.splendor.org/block-21018.json.tar.gz) (524 MB)
 - **SHA256 Checksum**: [Verification File](https://s3.us-east-1.amazonaws.com/files.splendor.org/block-21018.json.tar.gz.sha256)
-- **Verified Hash**: `0x7a4f2e8b9c1d3e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f`
+- **Block Hash (on-chain)**: `0x75a3a8bad40fd5e1abad7e5d684bc0fb46d38acd40d41ba1e4f31d9523becf4d`
+- **Local Full Block JSON SHA256**: `907ccfbcb43f9f6fbf0d8efdd4fbf11365c93941804b328e7133461fd03a60a4`
 - **Gas Usage**: 17,304,000,000 gas (3.46% of 500B limit)
 - **Status**: ✅ Cryptographically verified on-chain
 

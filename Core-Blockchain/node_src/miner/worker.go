@@ -22,6 +22,7 @@ import (
 	"errors"
 	"math/big"
 	"runtime"
+	"os"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -1367,14 +1368,20 @@ func (w *worker) calculateOptimalBatchSize() int {
 		baseBatchSize = int(float64(baseBatchSize) * 0.8)
 	}
 	
-	// Adjust based on current TPS vs target
-	targetTPS := uint64(100000) // Target 100K TPS for realistic performance
-	if stats.CurrentTPS < targetTPS/2 {
-		// Low TPS, try larger batches
-		baseBatchSize = int(float64(baseBatchSize) * 1.2)
-	} else if stats.CurrentTPS > targetTPS {
-		// High TPS, maintain current batch size
-		// No adjustment needed
+	// Adjust based on current TPS vs target (read from env or default to hybrid goal)
+	parseUint := func(s string, def uint64) uint64 {
+		if s == "" { return def }
+		if v, err := strconv.ParseUint(s, 10, 64); err == nil { return v }
+		return def
+	}
+	// Default aligns with hybrid.DefaultHybridConfig (3M)
+	targetTPS := parseUint(os.Getenv("THROUGHPUT_TARGET"), 3000000)
+	// Be more aggressive below 70% of target, stabilize above 95%
+	if stats.CurrentTPS < (targetTPS*70)/100 {
+		baseBatchSize = int(float64(baseBatchSize) * 1.25)
+	} else if stats.CurrentTPS >= (targetTPS*95)/100 {
+		// Near/at target: keep current size
+		// no-op
 	}
 	
 	// Adjust based on previous batch performance
@@ -1388,9 +1395,17 @@ func (w *worker) calculateOptimalBatchSize() int {
 		}
 	}
 	
-	// Enforce bounds
+	// Enforce bounds (respect environment and threshold)
 	minBatchSize := 500
-	maxBatchSize := 10000
+	if w.batchThreshold > minBatchSize {
+		minBatchSize = w.batchThreshold
+	}
+	// Default max aligned with cmd/geth/main.go (env default 80K)
+	maxDefault := 80000
+	if v, err := strconv.Atoi(os.Getenv("GPU_MAX_BATCH_SIZE")); err == nil && v > 0 {
+		maxDefault = v
+	}
+	maxBatchSize := maxDefault
 	
 	if baseBatchSize < minBatchSize {
 		baseBatchSize = minBatchSize

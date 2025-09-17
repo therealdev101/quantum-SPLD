@@ -51,8 +51,8 @@ echo -e "${PURPLE}=== 1. BINARY & CODE VERIFICATION ===${NC}"
 
 check_item "Geth binary exists" "test -f ./node_src/build/bin/geth"
 check_item "GPU libraries exist" "test -f ./node_src/common/gpu/gpu_processor.go"
-check_item "CUDA kernels exist" "test -f ./node_src/common/gpu/cuda_kernels.cu"
-check_item "OpenCL kernels exist" "test -f ./node_src/common/gpu/opencl_kernels.c"
+check_item "CUDA kernels exist" "test -f ./node_src/common/gpu/native/cuda_kernels.cu"
+check_item "OpenCL kernels exist" "test -f ./node_src/common/gpu/native/opencl_kernels.c"
 
 echo -e "\n${PURPLE}=== 2. HARDWARE REQUIREMENTS ===${NC}"
 
