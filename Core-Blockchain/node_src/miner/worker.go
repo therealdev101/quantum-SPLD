@@ -520,11 +520,8 @@ func (w *worker) newWorkLoop(recommit time.Duration) {
 			// If mining is running resubmit a new work cycle periodically to pull in
 			// higher priced transactions. Disable this overhead for pending blocks.
 			if w.isRunning() && (w.chainConfig.Clique == nil || w.chainConfig.Clique.Period > 0) {
-				// Short circuit if no new transaction arrives.
-				if atomic.LoadInt32(&w.newTxs) == 0 {
-					timer.Reset(recommit)
-					continue
-				}
+				// CRITICAL FIX: Always commit work even if no new transactions
+				// This ensures pending transactions get processed into blocks
 				commit(true, commitInterruptResubmit)
 			}
 
@@ -1230,6 +1227,7 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 	// BUT ONLY if there are no pending transactions to avoid empty blocks when we have transactions
 	if !noempty && atomic.LoadUint32(&w.noempty) == 0 && len(pending) == 0 {
 		w.commit(uncles, nil, false, tstart)
+		return
 	}
 
 	// Short circuit if there is no available pending transactions.
@@ -1237,6 +1235,15 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 	// empty block is necessary to keep the liveness of the network.
 	if len(pending) == 0 && atomic.LoadUint32(&w.noempty) == 0 {
 		w.updateSnapshot()
+		return
+	}
+
+	// CRITICAL FIX: Always process pending transactions even if noempty is disabled
+	// This ensures transactions don't get stuck in pending state
+	if len(pending) == 0 {
+		// Force empty block creation to maintain chain liveness
+		log.Debug("No pending transactions, creating empty block to maintain liveness")
+		w.commit(uncles, nil, false, tstart)
 		return
 	}
 
