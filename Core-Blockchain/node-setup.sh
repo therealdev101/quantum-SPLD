@@ -1504,21 +1504,27 @@ verify_installation(){
     VERIFICATION_PASSED=false
   fi
   
-  # Check GPU drivers
+  # Check GPU drivers with proper status tracking
+  GPU_DRIVERS_ACTIVE=false
   if nvidia-smi >/dev/null 2>&1; then
     GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader,nounits | head -1)
     GPU_MEMORY=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | head -1)
     log_success "✅ GPU drivers active: $GPU_NAME ($GPU_MEMORY MB)"
+    GPU_DRIVERS_ACTIVE=true
   else
     log_wait "⚠️  GPU drivers installed but require reboot to activate"
+    GPU_DRIVERS_ACTIVE=false
   fi
   
-  # Check CUDA installation
+  # Check CUDA installation with proper status tracking
+  CUDA_ACTIVE=false
   if command -v nvcc >/dev/null 2>&1; then
     CUDA_VERSION=$(nvcc --version | grep "release" | awk '{print $6}' | cut -c2-)
     log_success "✅ CUDA installed: $CUDA_VERSION"
+    CUDA_ACTIVE=true
   else
     log_wait "⚠️  CUDA installed but requires reboot to activate"
+    CUDA_ACTIVE=false
   fi
   
   # Check vLLM installation
@@ -1576,18 +1582,31 @@ verify_installation(){
     VERIFICATION_PASSED=false
   fi
   
-  # Final verification result
+  # Final verification result with accurate GPU status
   echo -e "\n${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
   if [ "$VERIFICATION_PASSED" = true ]; then
-    echo -e "${GREEN}║                    ✅ VERIFICATION PASSED                    ║${NC}"
-    echo -e "${GREEN}║                                                              ║${NC}"
-    echo -e "${GREEN}║  All components installed successfully!                     ║${NC}"
-    echo -e "${GREEN}║  • Go + Geth blockchain node                                ║${NC}"
-    echo -e "${GREEN}║  • GPU acceleration (CUDA + OpenCL)                        ║${NC}"
-    echo -e "${GREEN}║  • AI system (vLLM + MobileLLM-R1)                        ║${NC}"
-    echo -e "${GREEN}║  • Node.js ecosystem (yarn + pm2)                          ║${NC}"
-    echo -e "${GREEN}║                                                              ║${NC}"
-    echo -e "${GREEN}║  Ready to start with: ./node-start.sh                      ║${NC}"
+    if [ "$GPU_DRIVERS_ACTIVE" = true ] && [ "$CUDA_ACTIVE" = true ]; then
+      echo -e "${GREEN}║                    ✅ VERIFICATION PASSED                    ║${NC}"
+      echo -e "${GREEN}║                                                              ║${NC}"
+      echo -e "${GREEN}║  All components installed successfully!                     ║${NC}"
+      echo -e "${GREEN}║  • Go + Geth blockchain node                                ║${NC}"
+      echo -e "${GREEN}║  • GPU acceleration (CUDA + OpenCL) - ACTIVE               ║${NC}"
+      echo -e "${GREEN}║  • AI system (vLLM + MobileLLM-R1)                        ║${NC}"
+      echo -e "${GREEN}║  • Node.js ecosystem (yarn + pm2)                          ║${NC}"
+      echo -e "${GREEN}║                                                              ║${NC}"
+      echo -e "${GREEN}║  Ready to start with: ./node-start.sh                      ║${NC}"
+    else
+      echo -e "${ORANGE}║                    ⚠️  VERIFICATION PASSED (REBOOT NEEDED)  ║${NC}"
+      echo -e "${ORANGE}║                                                              ║${NC}"
+      echo -e "${ORANGE}║  Core components installed successfully!                    ║${NC}"
+      echo -e "${ORANGE}║  • Go + Geth blockchain node                                ║${NC}"
+      echo -e "${ORANGE}║  • GPU acceleration (CUDA + OpenCL) - NEEDS REBOOT         ║${NC}"
+      echo -e "${ORANGE}║  • AI system (vLLM + MobileLLM-R1)                        ║${NC}"
+      echo -e "${ORANGE}║  • Node.js ecosystem (yarn + pm2)                          ║${NC}"
+      echo -e "${ORANGE}║                                                              ║${NC}"
+      echo -e "${ORANGE}║  GPU features will activate after reboot                   ║${NC}"
+      echo -e "${ORANGE}║  Ready to start with: ./node-start.sh (after reboot)      ║${NC}"
+    fi
   else
     echo -e "${RED}║                    ❌ VERIFICATION FAILED                    ║${NC}"
     echo -e "${RED}║                                                              ║${NC}"
@@ -1836,4 +1855,3 @@ fi
 
 # bootstraping
 finalize
- 
