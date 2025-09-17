@@ -918,6 +918,26 @@ func (w *worker) commitTransactions(txs *types.TransactionsByPriceAndNonce, coin
 
 	var coalescedLogs []*types.Log
 
+	processSequentialBatch := func(batch []*types.Transaction) {
+		for _, tx := range batch {
+			from, _ := types.Sender(w.current.signer, tx)
+			if tx.Protected() && !w.chainConfig.IsEIP155(w.current.header.Number) {
+				continue
+			}
+			if w.isPoSA {
+				if err := w.posa.ValidateTx(from, tx, w.current.header, w.current.state); err != nil {
+					continue
+				}
+			}
+			w.current.state.Prepare(tx.Hash(), w.current.tcount)
+			logs, err := w.commitTransaction(tx, coinbase)
+			if err == nil {
+				coalescedLogs = append(coalescedLogs, logs...)
+				w.current.tcount++
+			}
+		}
+	}
+
 	// Try GPU batch processing if enabled and we have enough transactions
 	if w.gpuEnabled && w.hybridProcessor != nil {
 		// Calculate optimal batch size based on performance
@@ -951,8 +971,8 @@ func (w *worker) commitTransactions(txs *types.TransactionsByPriceAndNonce, coin
 			tempTxs.Shift()
 		}
 
-		// Process batch with GPU if we have enough transactions
-		if len(txBatch) >= w.batchThreshold/2 { // Use GPU for batches >= 500 transactions (1000/2)
+		switch {
+		case len(txBatch) >= w.batchThreshold/2: // Use GPU for sufficiently large batches
 			batchStart := time.Now()
 			log.Debug("Processing transaction batch with GPU acceleration", "batchSize", len(txBatch))
 
@@ -988,24 +1008,7 @@ func (w *worker) commitTransactions(txs *types.TransactionsByPriceAndNonce, coin
 			if !gpuSuccess {
 				// Fallback: apply collected transactions sequentially to avoid drops
 				log.Warn("GPU batch processing failed; applying sequentially", "error", gpuErrMsg, "batchSize", len(txBatch))
-				for _, tx := range txBatch {
-					// Re-run basic validations as in collection
-					from, _ := types.Sender(w.current.signer, tx)
-					if tx.Protected() && !w.chainConfig.IsEIP155(w.current.header.Number) {
-						continue
-					}
-					if w.isPoSA {
-						if err := w.posa.ValidateTx(from, tx, w.current.header, w.current.state); err != nil {
-							continue
-						}
-					}
-					w.current.state.Prepare(tx.Hash(), w.current.tcount)
-					logs, err := w.commitTransaction(tx, coinbase)
-					if err == nil {
-						coalescedLogs = append(coalescedLogs, logs...)
-						w.current.tcount++
-					}
-				}
+				processSequentialBatch(txBatch)
 				// In both success and fallback, the tempTxs iterator already advanced; continue with remaining
 				txs = tempTxs
 			} else {
@@ -1013,6 +1016,10 @@ func (w *worker) commitTransactions(txs *types.TransactionsByPriceAndNonce, coin
 				txs = tempTxs
 				log.Debug("GPU batch processing completed", "batchSize", len(txBatch), "duration", batchDuration)
 			}
+		case len(txBatch) > 0:
+			// Not enough transactions for GPU processing, execute sequentially to ensure they are not dropped.
+			processSequentialBatch(txBatch)
+			txs = tempTxs
 		}
 	}
 

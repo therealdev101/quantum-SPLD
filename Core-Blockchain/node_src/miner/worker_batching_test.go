@@ -5,7 +5,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hybrid"
+	"github.com/ethereum/go-ethereum/consensus/ethash"
+	"github.com/ethereum/go-ethereum/core/rawdb"
+	"github.com/ethereum/go-ethereum/params"
 )
 
 func TestCalculateOptimalBatchSizeIncreasesTowardsTarget(t *testing.T) {
@@ -17,6 +21,7 @@ func TestCalculateOptimalBatchSizeIncreasesTowardsTarget(t *testing.T) {
 		batchThreshold:   1000,
 		adaptiveBatching: true,
 	}
+	w.hybridThroughputTarget = targetTPS
 
 	baseStats := hybrid.HybridStats{
 		GPUUtilization: 0.75,
@@ -49,5 +54,59 @@ func TestCalculateOptimalBatchSizeIncreasesTowardsTarget(t *testing.T) {
 		if secondGrowth >= firstGrowth {
 			t.Fatalf("expected growth to slow as TPS approaches target: %d >= %d", secondGrowth, firstGrowth)
 		}
+	}
+}
+
+func TestCommitTransactionsProcessesUnderThresholdBatch(t *testing.T) {
+	engine := ethash.NewFaker()
+	defer engine.Close()
+
+	chainConfig := new(params.ChainConfig)
+	*chainConfig = *params.AllEthashProtocolChanges
+
+	w, backend := newTestWorker(t, chainConfig, engine, rawdb.NewMemoryDatabase(), 0)
+	defer backend.chain.Stop()
+	defer w.close()
+
+	w.gpuEnabled = true
+	w.hybridProcessor = &hybrid.HybridProcessor{}
+	w.adaptiveBatching = false
+	w.batchThreshold = 8
+
+	pending := backend.txPool.Pending(true)
+	expected := make(map[common.Hash]struct{})
+	for _, txs := range pending {
+		for _, tx := range txs {
+			expected[tx.Hash()] = struct{}{}
+		}
+	}
+	if len(expected) == 0 {
+		tx := backend.newRandomTx(false)
+		if err := backend.txPool.AddLocal(tx); err != nil {
+			t.Fatalf("failed to add local transaction: %v", err)
+		}
+		expected[tx.Hash()] = struct{}{}
+	}
+
+	if len(expected) == 0 {
+		t.Fatal("expected pending transactions for GPU staging test")
+	}
+	if len(expected) >= w.batchThreshold/2 {
+		t.Fatalf("need fewer pending txs than half threshold: have %d, limit %d", len(expected), w.batchThreshold/2)
+	}
+
+	w.commitNewWork(nil, false, time.Now().Unix())
+
+	if len(w.current.txs) != len(expected) {
+		t.Fatalf("expected %d transactions in block, got %d", len(expected), len(w.current.txs))
+	}
+	for _, tx := range w.current.txs {
+		if _, ok := expected[tx.Hash()]; !ok {
+			t.Fatalf("unexpected transaction %s in block", tx.Hash())
+		}
+		delete(expected, tx.Hash())
+	}
+	if len(expected) != 0 {
+		t.Fatalf("missing %d transactions from block", len(expected))
 	}
 }
