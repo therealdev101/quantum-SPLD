@@ -44,6 +44,10 @@ RECOMMENDED_GPU_NAME="RTX 4000 SFF Ada"
 RECOMMENDED_DRIVER_VERSION="575.57.08"
 RECOMMENDED_CUDA_MAJOR_MINOR="12.6"
 
+# Minimum acceptable versions (skip install if met or exceeded)
+MIN_DRIVER_VERSION="575.57.08"
+MIN_CUDA_VERSION="12.6.85"
+
 validate_strict_requirements(){
   log_wait "Validating strict hardware/software requirements"
 
@@ -77,15 +81,15 @@ validate_strict_requirements(){
   if ! echo "$GPU_NAME" | grep -qi "$RECOMMENDED_GPU_NAME"; then
     log_wait "Warning: Recommended GPU is '$RECOMMENDED_GPU_NAME', found '$GPU_NAME' (continuing)"
   fi
-  if [ "$DRIVER_VER" != "$RECOMMENDED_DRIVER_VERSION" ]; then
-    log_wait "Warning: Recommended NVIDIA driver is $RECOMMENDED_DRIVER_VERSION, found $DRIVER_VER (continuing)"
+  if ! version_ge "$DRIVER_VER" "$MIN_DRIVER_VERSION"; then
+    log_wait "Warning: NVIDIA driver below minimum $MIN_DRIVER_VERSION, found $DRIVER_VER (continuing)"
   fi
 
   # CUDA toolkit version
   if command -v nvcc >/dev/null 2>&1; then
-    CUDA_VER=$(nvcc --version | awk -F'release ' '/release/ {print $2}' | awk '{print $1}' | head -1)
-    if [ "${CUDA_VER%%.*}.${CUDA_VER#*.}" != "$RECOMMENDED_CUDA_MAJOR_MINOR" ]; then
-      log_wait "Warning: Recommended CUDA version is $RECOMMENDED_CUDA_MAJOR_MINOR, found $CUDA_VER (continuing)"
+    CUDA_VER=$(get_current_cuda_version)
+    if ! version_ge "$CUDA_VER" "$MIN_CUDA_VERSION"; then
+      log_wait "Warning: CUDA below minimum $MIN_CUDA_VERSION, found $CUDA_VER (continuing)"
     fi
   else
     log_error "nvcc not found; CUDA toolkit not installed"; return 1
@@ -131,6 +135,34 @@ gpu_is_ready() {
     return 2
   fi
   return 1
+}
+
+# Version helpers
+version_ge() {
+  dpkg --compare-versions "$1" ge "$2"
+}
+
+get_current_driver_version() {
+  if command -v nvidia-smi >/dev/null 2>&1; then
+    nvidia-smi --query-gpu=driver_version --format=csv,noheader,nounits 2>/dev/null | head -1
+  fi
+}
+
+get_current_cuda_version() {
+  if command -v nvcc >/dev/null 2>&1; then
+    local v
+    v=$(nvcc --version 2>/dev/null | grep -oE 'V[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's/^V//')
+    if [ -n "$v" ]; then echo "$v"; return; fi
+    v=$(nvcc --version 2>/dev/null | awk -F'release ' '/release/ {print $2}' | awk '{print $1}' | head -1)
+    if [ -n "$v" ]; then
+      case "$v" in
+        *.*.*) echo "$v" ;;
+        *.*) echo "$v.0" ;;
+        *) echo "$v.0.0" ;;
+      esac
+      return
+    fi
+  fi
 }
 
 # Enforce Secure Boot disabled for NVIDIA drivers (cannot disable from OS, but can guide)
@@ -696,12 +728,12 @@ install_gpu_dependencies(){
   # Clean up any broken NVIDIA deps prior to installs
   fix_broken_nvidia_stack
   
-  # Decide whether to adjust drivers based on installed series (skip if already 580+)
-  INSTALLED_SERIES=$(get_installed_driver_series)
-  if [ "$INSTALLED_SERIES" -ge 580 ]; then
-    log_success "NVIDIA driver series $INSTALLED_SERIES detected (meets 580+ requirement); skipping driver install"
+  # Driver: skip install if current driver version meets minimum
+  DRV_VER=$(get_current_driver_version)
+  if [ -n "$DRV_VER" ] && version_ge "$DRV_VER" "$MIN_DRIVER_VERSION"; then
+    log_success "NVIDIA driver version $DRV_VER ≥ $MIN_DRIVER_VERSION (OK). Skipping driver changes"
   else
-    log_wait "NVIDIA driver series <$((580)) detected ($INSTALLED_SERIES). Aligning to 580+"
+    log_wait "NVIDIA driver missing or below minimum (found: ${DRV_VER:-none}, need ≥ $MIN_DRIVER_VERSION). Installing recommended driver"
     ensure_driver_580_or_recommended
   fi
   
@@ -714,18 +746,17 @@ install_gpu_dependencies(){
     apt install -y nvidia-opencl-dev || log_wait "NVIDIA OpenCL will be available after reboot"
   fi
   
-  # Check if CUDA is already installed
-  if command -v nvcc >/dev/null 2>&1; then
-    EXISTING_CUDA=$(nvcc --version | grep "release" | awk '{print $6}' | cut -c2-)
-    log_success "CUDA $EXISTING_CUDA already installed"
-    
-    # Check if installed version matches recommended version
-    if [[ "$EXISTING_CUDA" != "$CUDA_VERSION"* ]]; then
-      log_wait "Upgrading CUDA from $EXISTING_CUDA to $CUDA_VERSION"
+  # CUDA: skip install if version meets minimum
+  CUDA_VER_CUR=$(get_current_cuda_version)
+  if [ -n "$CUDA_VER_CUR" ]; then
+    if version_ge "$CUDA_VER_CUR" "$MIN_CUDA_VERSION"; then
+      log_success "CUDA version $CUDA_VER_CUR ≥ $MIN_CUDA_VERSION (OK). Skipping CUDA install"
+    else
+      log_wait "CUDA below minimum (found $CUDA_VER_CUR, need ≥ $MIN_CUDA_VERSION). Upgrading"
       install_cuda_from_runfile
     fi
   else
-    # Install CUDA from official installer
+    log_wait "CUDA toolkit not found; installing"
     install_cuda_from_runfile
   fi
   
