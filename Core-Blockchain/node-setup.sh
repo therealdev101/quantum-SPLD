@@ -175,6 +175,7 @@ check_secure_boot(){
 task1(){
   # update and upgrade the server TASK 1
   log_wait "Updating system packages" && progress_bar
+  tidy_apt_sources
   apt update && apt upgrade -y
   
   # Fix system resource limits for blockchain node stability
@@ -370,8 +371,12 @@ task6(){
       log_success "CUDA library compiled successfully"
       log_wait "Building geth with GPU support and proper CUDA linking"
       
-      # Build geth with proper CUDA + PQ (liboqs) linking
-      if CGO_CFLAGS="-I/usr/local/cuda/include $PQ_CGO_CFLAGS" CGO_LDFLAGS="-L/usr/local/cuda/lib64 -L./common/gpu -lcuda -lcudart -lsplendor_cuda $PQ_CGO_LDFLAGS" go build -tags "gpu" -o build/bin/geth ./cmd/geth; then
+      # Build geth with proper CUDA + optional PQ (liboqs) linking
+      BUILD_TAGS="gpu"
+      if [ -n "$PQ_CGO_CFLAGS" ] && [ -f "/tmp/splendor_liboqs/include/oqs/oqs.h" ]; then
+        BUILD_TAGS="$BUILD_TAGS liboqs"
+      fi
+      if CGO_CFLAGS="-I/usr/local/cuda/include $PQ_CGO_CFLAGS" CGO_LDFLAGS="-L/usr/local/cuda/lib64 -L./common/gpu -lcuda -lcudart -lsplendor_cuda $PQ_CGO_LDFLAGS" go build -tags "$BUILD_TAGS" -o build/bin/geth ./cmd/geth; then
         log_success "Geth built successfully with CUDA + PQ (liboqs) support"
         
         # Verify CUDA linking
@@ -391,12 +396,12 @@ task6(){
         go run build/ci.go install ./cmd/geth
       fi
     else
-      log_wait "CUDA compilation failed, building CPU-only version"
-      go run build/ci.go install ./cmd/geth || make all
+      log_wait "CUDA compilation failed, building CPU-only geth"
+      go run build/ci.go install ./cmd/geth || true
     fi
   else
-    log_wait "CUDA not available - building CPU-only version"
-    make all
+    log_wait "CUDA not available - building CPU-only geth"
+    go run build/ci.go install ./cmd/geth || true
   fi
   
   log_success "Backend build completed"
