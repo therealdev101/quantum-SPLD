@@ -535,13 +535,22 @@ install_recommended_driver(){
   log_wait "Installing OS-recommended NVIDIA driver"
   apt update || true
   apt install -y ubuntu-drivers-common || true
-  if command -v ubuntu-drivers >/dev/null 2>&1; then
-    ubuntu-drivers autoinstall || true
+  apt --fix-broken install -y || true
+  local rec_pkg
+  rec_pkg=$(get_recommended_driver_pkg)
+  if [ -n "$rec_pkg" ]; then
+    log_wait "OS recommends: $rec_pkg"
+    apt install -y "$rec_pkg" || {
+      log_wait "Fixing broken dependencies, retrying $rec_pkg"
+      apt --fix-broken install -y || true
+      apt install -y "$rec_pkg" || true
+    }
+  else
+    # Fallback to autoinstall if we couldn't parse recommendation
+    if command -v ubuntu-drivers >/dev/null 2>&1; then
+      ubuntu-drivers autoinstall || true
+    fi
   fi
-  # Fallback to common current series on 24.04 if autoinstall not available
-  apt install -y nvidia-driver-560 nvidia-utils-560 || \
-  apt install -y nvidia-driver-555 nvidia-utils-555 || \
-  apt install -y nvidia-driver-550 nvidia-utils-550 || true
 }
 
 # Helper: parse OS-recommended driver package name (prefer -open)
@@ -578,7 +587,12 @@ switch_to_recommended_driver(){
   apt purge -y 'nvidia-driver-*' 'nvidia-dkms-*' 'nvidia-utils-*' 'libnvidia-*' || true
   apt autoremove -y || true
   # Install recommended package
-  apt install -y "$rec_pkg" || true
+  apt --fix-broken install -y || true
+  apt install -y "$rec_pkg" || {
+    log_wait "Fixing broken dependencies, retrying $rec_pkg"
+    apt --fix-broken install -y || true
+    apt install -y "$rec_pkg" || true
+  }
   # Regenerate initramfs and grub
   update-initramfs -u || true
   update-grub || true
@@ -630,7 +644,7 @@ install_gpu_dependencies(){
     fi
   else
     log_wait "No NVIDIA driver detected; installing OS-recommended driver"
-    install_recommended_driver
+    switch_to_recommended_driver
     DRIVER_SWITCHED=1
   fi
   
