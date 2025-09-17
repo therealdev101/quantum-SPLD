@@ -151,11 +151,28 @@ get_current_driver_version() {
 }
 
 get_current_cuda_version() {
+  # Check multiple possible CUDA installations
+  local cuda_paths="/usr/local/cuda/bin/nvcc /usr/local/cuda-*/bin/nvcc"
+  local nvcc_path=""
+  
+  # First try the standard nvcc command
   if command -v nvcc >/dev/null 2>&1; then
+    nvcc_path="nvcc"
+  else
+    # Try to find nvcc in common CUDA installation paths
+    for path in $cuda_paths; do
+      if [ -f "$path" ]; then
+        nvcc_path="$path"
+        break
+      fi
+    done
+  fi
+  
+  if [ -n "$nvcc_path" ]; then
     local v
-    v=$(nvcc --version 2>/dev/null | grep -oE 'V[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's/^V//')
+    v=$($nvcc_path --version 2>/dev/null | grep -oE 'V[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's/^V//')
     if [ -n "$v" ]; then echo "$v"; return; fi
-    v=$(nvcc --version 2>/dev/null | awk -F'release ' '/release/ {print $2}' | awk '{print $1}' | head -1)
+    v=$($nvcc_path --version 2>/dev/null | awk -F'release ' '/release/ {print $2}' | awk '{print $1}' | head -1)
     if [ -n "$v" ]; then
       case "$v" in
         *.*.*) echo "$v" ;;
@@ -636,12 +653,29 @@ install_target_cuda_version(){
     fi
   fi
   
-  # Verify CUDA installation
-  if [ -f "/usr/local/cuda/bin/nvcc" ]; then
-    CUDA_INSTALLED_VERSION=$(/usr/local/cuda/bin/nvcc --version | grep "release" | awk '{print $6}' | cut -c2-)
-    log_success "CUDA $CUDA_INSTALLED_VERSION installed and verified successfully"
+  # Verify CUDA installation - check multiple possible paths
+  local cuda_nvcc_paths="/usr/local/cuda/bin/nvcc /usr/local/cuda-*/bin/nvcc"
+  local found_nvcc=""
+  
+  for nvcc_path in $cuda_nvcc_paths; do
+    if [ -f "$nvcc_path" ]; then
+      found_nvcc="$nvcc_path"
+      break
+    fi
+  done
+  
+  if [ -n "$found_nvcc" ]; then
+    CUDA_INSTALLED_VERSION=$($found_nvcc --version | grep "release" | awk '{print $6}' | cut -c2-)
+    log_success "CUDA $CUDA_INSTALLED_VERSION installed and verified successfully at $found_nvcc"
+    
+    # Create symlink if it doesn't exist
+    if [ ! -L "/usr/local/cuda" ] && [ ! -d "/usr/local/cuda" ]; then
+      local cuda_dir=$(dirname $(dirname $found_nvcc))
+      ln -sf "$cuda_dir" /usr/local/cuda
+      log_success "Created symlink /usr/local/cuda -> $cuda_dir"
+    fi
   else
-    log_error "CUDA installation verification failed"
+    log_error "CUDA installation verification failed - nvcc not found in expected locations"
     return 1
   fi
 }
