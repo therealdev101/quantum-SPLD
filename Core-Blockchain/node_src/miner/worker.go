@@ -142,7 +142,7 @@ type worker struct {
 	posa   consensus.PoSA
 	isPoSA bool
 
-    // GPU/Hybrid processing integration
+	// GPU/Hybrid processing integration
 	hybridProcessor        *hybrid.HybridProcessor
 	hybridStatsOverride    *hybrid.HybridStats // Test hook for overriding stats
 	parallelProcessor      *core.ParallelStateProcessor
@@ -250,33 +250,34 @@ func newWorker(config *Config, chainConfig *params.ChainConfig, engine consensus
 		hybridMaxBatchSize:     200000,
 	}
 
-	// Initialize hybrid processor for GPU acceleration (required)
+	// Initialize hybrid processor for GPU acceleration when available
 	hybridProcessor := hybrid.GetGlobalHybridProcessor()
 	if hybridProcessor == nil {
 		// Attempt lazy initialization in case startup ordering delayed init
 		if err := hybrid.InitGlobalHybridProcessor(hybrid.DefaultHybridConfig()); err != nil {
-			log.Crit("GPU acceleration required but not available: failed to initialize hybrid processor", "error", err)
+			log.Error("Failed to initialize hybrid processor for GPU acceleration; continuing without GPU", "error", err)
 		}
 		hybridProcessor = hybrid.GetGlobalHybridProcessor()
 		if hybridProcessor == nil {
-			log.Crit("GPU acceleration required but not available: hybrid processor is nil. Ensure GPU drivers and GPU build are installed and enabled.")
+			log.Warn("Hybrid processor unavailable; GPU acceleration disabled")
 		}
 	}
 	worker.hybridProcessor = hybridProcessor
-	if config := hybridProcessor.GetConfig(); config != nil {
-		// Enforce GPU requirement via config flag (GPU init failure disables this flag)
-		if !config.EnableGPU {
-			log.Crit("GPU acceleration required but disabled or failed to initialize. Check GPU drivers, CUDA/OpenCL runtime, and build flags.")
-		}
-		// Always set, zero disables TPS-based adjustment
-		worker.hybridThroughputTarget = config.ThroughputTarget
-		if config.GPUConfig != nil && config.GPUConfig.MaxBatchSize > 0 {
-			worker.hybridMaxBatchSize = config.GPUConfig.MaxBatchSize
+	if hybridProcessor != nil {
+		if config := hybridProcessor.GetConfig(); config != nil {
+			// Always set, zero disables TPS-based adjustment
+			worker.hybridThroughputTarget = config.ThroughputTarget
+			if config.GPUConfig != nil && config.GPUConfig.MaxBatchSize > 0 {
+				worker.hybridMaxBatchSize = config.GPUConfig.MaxBatchSize
+			}
+			if config.EnableGPU {
+				worker.gpuEnabled = true
+			} else {
+				log.Warn("GPU acceleration disabled by hybrid configuration; continuing without GPU support")
+			}
 		}
 	}
-	// If we reached here, GPU is required and considered enabled
-	worker.gpuEnabled = true
-	log.Info("Miner GPU acceleration initialized", "enabled", worker.gpuEnabled)
+	log.Info("Miner GPU acceleration status", "enabled", worker.gpuEnabled)
 
 	// Environment overrides; accept zero for THROUGHPUT_TARGET to disable adjustment
 	if val, ok := os.LookupEnv("THROUGHPUT_TARGET"); ok {
@@ -950,69 +951,69 @@ func (w *worker) commitTransactions(txs *types.TransactionsByPriceAndNonce, coin
 			tempTxs.Shift()
 		}
 
-        // Process batch with GPU if we have enough transactions
-        if len(txBatch) >= w.batchThreshold/2 { // Use GPU for batches >= 500 transactions (1000/2)
-            batchStart := time.Now()
-            log.Debug("Processing transaction batch with GPU acceleration", "batchSize", len(txBatch))
+		// Process batch with GPU if we have enough transactions
+		if len(txBatch) >= w.batchThreshold/2 { // Use GPU for batches >= 500 transactions (1000/2)
+			batchStart := time.Now()
+			log.Debug("Processing transaction batch with GPU acceleration", "batchSize", len(txBatch))
 
-            // Track callback outcome explicitly to avoid relying on returned error
-            gpuSuccess := false
-            gpuErrMsg := ""
+			// Track callback outcome explicitly to avoid relying on returned error
+			gpuSuccess := false
+			gpuErrMsg := ""
 
-            // Use hybrid processor for GPU-accelerated prevalidation
-            _ = w.hybridProcessor.ProcessTransactionsBatch(txBatch, func(results []*hybrid.TransactionResult, err error) {
-                if err != nil {
-                    gpuErrMsg = err.Error()
-                    return
-                }
+			// Use hybrid processor for GPU-accelerated prevalidation
+			_ = w.hybridProcessor.ProcessTransactionsBatch(txBatch, func(results []*hybrid.TransactionResult, err error) {
+				if err != nil {
+					gpuErrMsg = err.Error()
+					return
+				}
 
-                // Apply GPU-validated transactions sequentially (EVM execution still needs to be sequential for state consistency)
-                for i, result := range results {
-                    if result.Valid && i < len(txBatch) {
-                        w.current.state.Prepare(txBatch[i].Hash(), w.current.tcount)
-                        logs, err := w.commitTransaction(txBatch[i], coinbase)
-                        if err == nil {
-                            coalescedLogs = append(coalescedLogs, logs...)
-                            w.current.tcount++
-                        }
-                    }
-                }
-                gpuSuccess = true
-            })
+				// Apply GPU-validated transactions sequentially (EVM execution still needs to be sequential for state consistency)
+				for i, result := range results {
+					if result.Valid && i < len(txBatch) {
+						w.current.state.Prepare(txBatch[i].Hash(), w.current.tcount)
+						logs, err := w.commitTransaction(txBatch[i], coinbase)
+						if err == nil {
+							coalescedLogs = append(coalescedLogs, logs...)
+							w.current.tcount++
+						}
+					}
+				}
+				gpuSuccess = true
+			})
 
-            // Update batch performance metrics
-            batchDuration := time.Since(batchStart)
-            w.updateBatchPerformance(len(txBatch), batchDuration)
+			// Update batch performance metrics
+			batchDuration := time.Since(batchStart)
+			w.updateBatchPerformance(len(txBatch), batchDuration)
 
-            if !gpuSuccess {
-                // Fallback: apply collected transactions sequentially to avoid drops
-                log.Warn("GPU batch processing failed; applying sequentially", "error", gpuErrMsg, "batchSize", len(txBatch))
-                for _, tx := range txBatch {
-                    // Re-run basic validations as in collection
-                    from, _ := types.Sender(w.current.signer, tx)
-                    if tx.Protected() && !w.chainConfig.IsEIP155(w.current.header.Number) {
-                        continue
-                    }
-                    if w.isPoSA {
-                        if err := w.posa.ValidateTx(from, tx, w.current.header, w.current.state); err != nil {
-                            continue
-                        }
-                    }
-                    w.current.state.Prepare(tx.Hash(), w.current.tcount)
-                    logs, err := w.commitTransaction(tx, coinbase)
-                    if err == nil {
-                        coalescedLogs = append(coalescedLogs, logs...)
-                        w.current.tcount++
-                    }
-                }
-                // In both success and fallback, the tempTxs iterator already advanced; continue with remaining
-                txs = tempTxs
-            } else {
-                // GPU batch processing completed, continue with remaining transactions sequentially
-                txs = tempTxs
-                log.Debug("GPU batch processing completed", "batchSize", len(txBatch), "duration", batchDuration)
-            }
-        }
+			if !gpuSuccess {
+				// Fallback: apply collected transactions sequentially to avoid drops
+				log.Warn("GPU batch processing failed; applying sequentially", "error", gpuErrMsg, "batchSize", len(txBatch))
+				for _, tx := range txBatch {
+					// Re-run basic validations as in collection
+					from, _ := types.Sender(w.current.signer, tx)
+					if tx.Protected() && !w.chainConfig.IsEIP155(w.current.header.Number) {
+						continue
+					}
+					if w.isPoSA {
+						if err := w.posa.ValidateTx(from, tx, w.current.header, w.current.state); err != nil {
+							continue
+						}
+					}
+					w.current.state.Prepare(tx.Hash(), w.current.tcount)
+					logs, err := w.commitTransaction(tx, coinbase)
+					if err == nil {
+						coalescedLogs = append(coalescedLogs, logs...)
+						w.current.tcount++
+					}
+				}
+				// In both success and fallback, the tempTxs iterator already advanced; continue with remaining
+				txs = tempTxs
+			} else {
+				// GPU batch processing completed, continue with remaining transactions sequentially
+				txs = tempTxs
+				log.Debug("GPU batch processing completed", "batchSize", len(txBatch), "duration", batchDuration)
+			}
+		}
 	}
 
 	// Continue with sequential processing for remaining transactions
@@ -1396,13 +1397,13 @@ func (w *worker) calculateOptimalBatchSize() int {
 	}
 
 	// Get current hybrid processor stats
-		stats := w.currentHybridStats()
+	stats := w.currentHybridStats()
 
-		// Base batch size
-		baseBatchSize := w.batchThreshold
-		if w.lastBatchSize > baseBatchSize {
-			baseBatchSize = w.lastBatchSize
-		}
+	// Base batch size
+	baseBatchSize := w.batchThreshold
+	if w.lastBatchSize > baseBatchSize {
+		baseBatchSize = w.lastBatchSize
+	}
 
 	// Use AI recommendations if available
 	if w.aiOptimization && w.aiLoadBalancer != nil {
@@ -1433,32 +1434,32 @@ func (w *worker) calculateOptimalBatchSize() int {
 		baseBatchSize = int(float64(baseBatchSize) * 0.8)
 	}
 
-		// Adjust based on current TPS vs target (cached from hybrid config or environment overrides)
-		targetTPS := w.hybridThroughputTarget
-		if targetTPS > 0 { // zero disables TPS-based adjustment
-			target := float64(targetTPS)
-			current := float64(stats.CurrentTPS)
-			ratio := 0.0
-			if target > 0 {
-				ratio = current / target
-			}
-			switch {
-			case ratio < 0.95:
-				diffRatio := 1 - ratio
-				growth := 1 + math.Min(diffRatio*0.8, 0.5)
-				if growth < 1.05 {
-					growth = 1.05
-				}
-				baseBatchSize = int(float64(baseBatchSize) * growth)
-			case ratio >= 1.0:
-				overRatio := ratio - 1
-				reduction := 1 - math.Min(overRatio*0.6, 0.3)
-				if reduction < 0.7 {
-					reduction = 0.7
-				}
-				baseBatchSize = int(float64(baseBatchSize) * reduction)
-			}
+	// Adjust based on current TPS vs target (cached from hybrid config or environment overrides)
+	targetTPS := w.hybridThroughputTarget
+	if targetTPS > 0 { // zero disables TPS-based adjustment
+		target := float64(targetTPS)
+		current := float64(stats.CurrentTPS)
+		ratio := 0.0
+		if target > 0 {
+			ratio = current / target
 		}
+		switch {
+		case ratio < 0.95:
+			diffRatio := 1 - ratio
+			growth := 1 + math.Min(diffRatio*0.8, 0.5)
+			if growth < 1.05 {
+				growth = 1.05
+			}
+			baseBatchSize = int(float64(baseBatchSize) * growth)
+		case ratio >= 1.0:
+			overRatio := ratio - 1
+			reduction := 1 - math.Min(overRatio*0.6, 0.3)
+			if reduction < 0.7 {
+				reduction = 0.7
+			}
+			baseBatchSize = int(float64(baseBatchSize) * reduction)
+		}
+	}
 
 	// Adjust based on previous batch performance
 	if w.lastBatchTime > 0 && w.lastBatchSize > 0 {
@@ -1476,11 +1477,11 @@ func (w *worker) calculateOptimalBatchSize() int {
 	if w.batchThreshold > minBatchSize {
 		minBatchSize = w.batchThreshold
 	}
-		// Default max aligned with cached hybrid configuration
-		maxBatchSize := w.hybridMaxBatchSize
-		if maxBatchSize <= 0 {
-			maxBatchSize = 200000
-		}
+	// Default max aligned with cached hybrid configuration
+	maxBatchSize := w.hybridMaxBatchSize
+	if maxBatchSize <= 0 {
+		maxBatchSize = 200000
+	}
 
 	if baseBatchSize < minBatchSize {
 		baseBatchSize = minBatchSize
